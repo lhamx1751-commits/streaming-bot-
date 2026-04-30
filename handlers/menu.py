@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database import get_statistik, netflix_get_all, disney_get_all, yt_get_all
 from database import profil_get_all, perangkat_get_all, member_get_all
-from utils import sisa_hari, format_tgl, status_icon, LAYANAN_ICON if False else None
+from utils import sisa_hari, format_tgl, status_icon
 
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -49,7 +49,6 @@ async def tampil_expired(update):
     teks = "⚠️ *Akun Akan Expired*\n━━━━━━━━━━━━━━━━━━━━\n\n"
     ada = False
 
-    # Netflix profil
     for n in netflix_get_all():
         for p in profil_get_all(n['id']):
             sisa = sisa_hari(p['expired'])
@@ -59,7 +58,6 @@ async def tampil_expired(update):
                 teks += f"{icon} 🎬 *Profil {p['nomor_profil']}* — {p['nama_pelanggan'] or '-'}\n"
                 teks += f"   📧 {n['email']} | ⏰ {sisa} hari lagi\n\n"
 
-    # Disney
     for d in disney_get_all():
         sisa = sisa_hari(d['expired_langganan'])
         if 0 <= sisa <= 7:
@@ -68,7 +66,6 @@ async def tampil_expired(update):
             teks += f"{icon} 🏰 *Disney+* — {d['email']}\n"
             teks += f"   ⏰ {sisa} hari lagi\n\n"
 
-    # YouTube
     for y in yt_get_all():
         sisa = sisa_hari(y['expired_langganan'])
         if 0 <= sisa <= 7:
@@ -82,3 +79,4 @@ async def tampil_expired(update):
 
     kb = [[InlineKeyboardButton("« Menu Utama", callback_data="start_menu")]]
     await query.edit_message_text(teks, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
+    
