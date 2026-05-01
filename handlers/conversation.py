@@ -733,3 +733,219 @@ async def cari_proses(update, context):
     kb.append([InlineKeyboardButton("« Menu Utama", callback_data="start_menu")])
     await update.message.reply_text(teks, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
     return ConversationHandler.END
+
+
+# ══ BULK PERANGKAT DISNEY ══════════════════════════════════
+
+BULK_PG_INPUT = 70
+
+def conv_bulk_perangkat():
+    return ConversationHandler(
+        entry_points=[CallbackQueryHandler(bulk_pg_mulai, pattern="^bulk_perangkat_")],
+        states={BULK_PG_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, bulk_pg_proses)]},
+        fallbacks=[CommandHandler("batal", batal)],
+        name="bulk_pg", persistent=False,
+    )
+
+async def bulk_pg_mulai(update, context):
+    await update.callback_query.answer()
+    did = int(update.callback_query.data.split("_")[2])
+    context.user_data.clear()
+    context.user_data['bulk_did'] = did
+    d = ds_get(did)
+
+    contoh = (
+        "📱 *Bulk Tambah Perangkat Disney+*\n"
+        f"📧 {d['email']}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Kirim semua perangkat sekaligus dengan format:\n\n"
+        "`NamaPerangkat|DD-MM-YYYY`\n\n"
+        "Contoh:\n"
+        "`Oppo phone|09-05-2026`\n"
+        "`Infinix phone|10-05-2026`\n"
+        "`Chrome browser|18-05-2026`\n"
+        "`Techno phone|18-05-2026`\n"
+        "`Samsung TV|21-05-2026`\n\n"
+        "⚠️ Satu baris = satu perangkat\n"
+        "Tanggal bisa dikosongkan: `Oppo phone|`"
+    )
+    await update.callback_query.message.reply_text(contoh, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return BULK_PG_INPUT
+
+async def bulk_pg_proses(update, context):
+    did = context.user_data['bulk_did']
+    text = update.message.text.strip()
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+
+    berhasil = []
+    gagal = []
+
+    # Cek slot tersisa
+    pg_existing = perangkat_all(did)
+    slot_tersisa = 5 - len(pg_existing)
+
+    if slot_tersisa <= 0:
+        await update.message.reply_text("❌ Slot perangkat sudah penuh! Maksimal 5 perangkat.")
+        return ConversationHandler.END
+
+    for i, line in enumerate(lines):
+        if len(berhasil) >= slot_tersisa:
+            gagal.append(f"⚠️ {line} → Slot penuh (maks 5)")
+            continue
+
+        parts = line.split('|')
+        nama = parts[0].strip() if parts else ''
+
+        if not nama:
+            gagal.append(f"❌ Baris {i+1} → Nama kosong")
+            continue
+
+        tgl = ''
+        if len(parts) > 1 and parts[1].strip():
+            tgl_db = validasi_tgl(parts[1].strip())
+            if tgl_db:
+                tgl = tgl_db
+            else:
+                gagal.append(f"⚠️ {nama} → Format tanggal salah, disimpan tanpa tanggal")
+
+        perangkat_add({'disney_id': did, 'nama': nama, 'expired': tgl})
+        berhasil.append(f"✅ {nama}" + (f" | {format_tgl(tgl)}" if tgl else ""))
+
+    teks = f"📱 *Hasil Bulk Tambah Perangkat*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    if berhasil:
+        teks += f"✅ *Berhasil ({len(berhasil)}):**\n"
+        teks += '\n'.join(berhasil) + '\n\n'
+
+    if gagal:
+        teks += f"⚠️ *Gagal/Peringatan ({len(gagal)}):**\n"
+        teks += '\n'.join(gagal) + '\n\n'
+
+    teks += f"Ketik /start untuk kembali ke menu."
+
+    await update.message.reply_text(teks, parse_mode='Markdown')
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# ══ BULK PROFIL NETFLIX ════════════════════════════════════
+
+BULK_PR_INPUT = 71
+
+def conv_bulk_profil():
+    return ConversationHandler(
+        entry_points=[CallbackQueryHandler(bulk_pr_mulai, pattern="^bulk_profil_")],
+        states={BULK_PR_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, bulk_pr_proses)]},
+        fallbacks=[CommandHandler("batal", batal)],
+        name="bulk_profil", persistent=False,
+    )
+
+async def bulk_pr_mulai(update, context):
+    await update.callback_query.answer()
+    nid = int(update.callback_query.data.split("_")[2])
+    context.user_data.clear()
+    context.user_data['bulk_nid'] = nid
+    n = nf_get(nid)
+
+    profil = profil_all(nid)
+    nomor_ada = [p['nomor'] for p in profil]
+    nomor_tersedia = [str(i) for i in range(1,6) if i not in nomor_ada]
+
+    contoh = (
+        "👥 *Bulk Tambah Profil Netflix*\n"
+        f"📧 {n['email']}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Slot tersedia: *{', '.join(nomor_tersedia)}*\n\n"
+        "Format:\n"
+        "`NoProfil|NamaProfil|PIN|DD-MM-YYYY`\n\n"
+        "Contoh:\n"
+        "`1|Dyah|1111|25-04-2026`\n"
+        "`2|Saulo|2025|`\n"
+        "`3|David|2222|expired`\n"
+        "`4|Gio|1244|`\n"
+        "`5|Keys|0000|25-04-2026`\n\n"
+        "⚠️ PIN dan tanggal bisa dikosongkan\n"
+        "Tulis 'expired' jika sudah expired\n"
+        "Satu baris = satu profil"
+    )
+    await update.callback_query.message.reply_text(contoh, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return BULK_PR_INPUT
+
+async def bulk_pr_proses(update, context):
+    nid = context.user_data['bulk_nid']
+    text = update.message.text.strip()
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+
+    berhasil = []
+    gagal = []
+
+    profil_existing = profil_all(nid)
+    nomor_ada = [p['nomor'] for p in profil_existing]
+
+    for i, line in enumerate(lines):
+        parts = line.split('|')
+
+        if len(parts) < 2:
+            gagal.append(f"❌ Baris {i+1} → Format salah")
+            continue
+
+        try:
+            nomor = int(parts[0].strip())
+        except:
+            gagal.append(f"❌ Baris {i+1} → Nomor profil tidak valid")
+            continue
+
+        if nomor < 1 or nomor > 5:
+            gagal.append(f"❌ Profil {nomor} → Harus antara 1-5")
+            continue
+
+        if nomor in nomor_ada:
+            gagal.append(f"⚠️ Profil {nomor} → Sudah ada, skip")
+            continue
+
+        nama = parts[1].strip() if len(parts) > 1 else ''
+        if not nama:
+            gagal.append(f"❌ Baris {i+1} → Nama kosong")
+            continue
+
+        pin = parts[2].strip() if len(parts) > 2 else ''
+        tgl_raw = parts[3].strip() if len(parts) > 3 else ''
+
+        tgl = ''
+        if tgl_raw.lower() == 'expired':
+            from datetime import date, timedelta
+            tgl = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+        elif tgl_raw:
+            tgl_db = validasi_tgl(tgl_raw)
+            if tgl_db:
+                tgl = tgl_db
+            else:
+                gagal.append(f"⚠️ Profil {nomor} {nama} → Format tanggal salah, disimpan tanpa tanggal")
+
+        profil_add({
+            'netflix_id': nid,
+            'nomor': nomor,
+            'nama': nama,
+            'pin': pin,
+            'expired': tgl
+        })
+        nomor_ada.append(nomor)
+
+        expired_str = format_tgl(tgl) if tgl else 'Aktif'
+        berhasil.append(f"✅ Profil {nomor} — {nama} | PIN: {pin or '-'} | {expired_str}")
+
+    teks = f"👥 *Hasil Bulk Tambah Profil*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    if berhasil:
+        teks += f"✅ *Berhasil ({len(berhasil)}):**\n"
+        teks += '\n'.join(berhasil) + '\n\n'
+
+    if gagal:
+        teks += f"⚠️ *Gagal/Peringatan ({len(gagal)}):**\n"
+        teks += '\n'.join(gagal) + '\n\n'
+
+    teks += "Ketik /start untuk kembali ke menu."
+
+    await update.message.reply_text(teks, parse_mode='Markdown')
+    context.user_data.clear()
+    return ConversationHandler.END

@@ -144,7 +144,7 @@ async def kelola_profil(update, nid):
         ])
 
     if len(profil) < 5:
-        kb.append([InlineKeyboardButton("➕ Tambah Profil", callback_data=f"tambah_profil_{nid}")])
+        kb.append([InlineKeyboardButton("➕ Tambah 1", callback_data=f"tambah_profil_{nid}"), InlineKeyboardButton("📋 Bulk Tambah", callback_data=f"bulk_profil_{nid}")])
     kb.append([InlineKeyboardButton("« Kembali", callback_data=f"nf_detail_{nid}")])
 
     await query.edit_message_text(teks or "Belum ada profil.", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))

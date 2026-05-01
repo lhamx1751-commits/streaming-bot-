@@ -150,7 +150,7 @@ async def kelola_perangkat(update, did):
         ])
 
     if len(pg_list) < 5:
-        kb.append([InlineKeyboardButton("➕ Tambah Perangkat", callback_data=f"tambah_perangkat_{did}")])
+        kb.append([InlineKeyboardButton("➕ Tambah 1", callback_data=f"tambah_perangkat_{did}"), InlineKeyboardButton("📋 Bulk Tambah", callback_data=f"bulk_perangkat_{did}")])
     kb.append([InlineKeyboardButton("« Kembali", callback_data=f"ds_detail_{did}")])
 
     await query.edit_message_text(teks or "Belum ada perangkat.", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
