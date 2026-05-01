@@ -15,7 +15,7 @@ from handlers.conversation import (
     conv_tambah_disney, conv_tambah_perangkat, conv_edit_disney,
     conv_edit_perangkat, conv_perp_disney,
     conv_tambah_youtube, conv_edit_youtube, conv_perp_youtube,
-    conv_cari
+    conv_cari, conv_bulk_perangkat, conv_bulk_profil
 )
 import pytz
 
@@ -43,6 +43,7 @@ def main():
 
     # Conversation handlers
     for conv in [
+        conv_bulk_perangkat(), conv_bulk_profil(),
         conv_tambah_netflix(), conv_tambah_profil(), conv_edit_netflix(),
         conv_edit_profil(), conv_perp_netflix(),
         conv_tambah_disney(), conv_tambah_perangkat(), conv_edit_disney(),
@@ -70,10 +71,13 @@ def main():
     # Pengingat otomatis setiap jam
     app.job_queue.run_repeating(cek_pengingat, interval=3600, first=10)
 
-    # Laporan pagi jam 08:00 WIB setiap hari
-    app.job_queue.run_daily(kirim_laporan_pagi, time=__import__('datetime').time(8, 0, 0, tzinfo=WIB))
+    # Laporan pagi jam 08:00 WIB
+    app.job_queue.run_daily(
+        kirim_laporan_pagi,
+        time=__import__('datetime').time(8, 0, 0, tzinfo=WIB)
+    )
 
-    logger.info("✅ Streaming Manager Bot v3 aktif!")
+    logger.info("✅ Streaming Manager Bot v4 aktif!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
