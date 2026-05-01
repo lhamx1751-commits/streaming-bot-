@@ -13,13 +13,12 @@ def init_db():
     conn = get_conn()
     c = conn.cursor()
 
-    # ── NETFLIX ──────────────────────────────────────────
+    # NETFLIX
     c.execute('''CREATE TABLE IF NOT EXISTS netflix (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT NOT NULL,
         password TEXT NOT NULL,
-        metode_bayar TEXT DEFAULT 'Visa',
-        expired_akun TEXT,
+        tgl_ubah_pw TEXT,
         catatan TEXT,
         status TEXT DEFAULT 'aktif',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -28,24 +27,22 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS netflix_profil (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         netflix_id INTEGER NOT NULL,
-        nomor_profil INTEGER NOT NULL,
-        nama_profil TEXT,
-        nama_pelanggan TEXT,
-        no_hp TEXT,
-        expired TEXT NOT NULL,
-        harga INTEGER DEFAULT 0,
+        nomor INTEGER NOT NULL,
+        nama TEXT NOT NULL,
+        pin TEXT,
+        expired TEXT,
         status TEXT DEFAULT 'aktif',
         FOREIGN KEY (netflix_id) REFERENCES netflix(id)
     )''')
 
-    # ── DISNEY+ ──────────────────────────────────────────
+    # DISNEY+
     c.execute('''CREATE TABLE IF NOT EXISTS disney (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nama_paket TEXT DEFAULT 'DISNEY 1 BULAN SHARING',
         no_hp TEXT,
         email TEXT NOT NULL,
         password TEXT,
         expired_langganan TEXT NOT NULL,
-        harga INTEGER DEFAULT 0,
         catatan TEXT,
         status TEXT DEFAULT 'aktif',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -54,37 +51,24 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS disney_perangkat (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         disney_id INTEGER NOT NULL,
-        nama_perangkat TEXT NOT NULL,
-        nama_pelanggan TEXT,
-        no_hp TEXT,
-        tanggal_login TEXT,
+        nama TEXT NOT NULL,
+        expired TEXT,
         status TEXT DEFAULT 'aktif',
         FOREIGN KEY (disney_id) REFERENCES disney(id)
     )''')
 
-    # ── YOUTUBE ──────────────────────────────────────────
+    # YOUTUBE
     c.execute('''CREATE TABLE IF NOT EXISTS youtube (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email_akun TEXT NOT NULL,
+        email TEXT NOT NULL,
         password TEXT,
-        expired_langganan TEXT NOT NULL,
-        harga INTEGER DEFAULT 0,
+        expired TEXT NOT NULL,
         catatan TEXT,
         status TEXT DEFAULT 'aktif',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
 
-    c.execute('''CREATE TABLE IF NOT EXISTS youtube_member (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        youtube_id INTEGER NOT NULL,
-        email_pembeli TEXT NOT NULL,
-        nama_pelanggan TEXT,
-        no_hp TEXT,
-        status TEXT DEFAULT 'aktif',
-        FOREIGN KEY (youtube_id) REFERENCES youtube(id)
-    )''')
-
-    # ── PENGINGAT LOG ────────────────────────────────────
+    # PENGINGAT LOG
     c.execute('''CREATE TABLE IF NOT EXISTS pengingat_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tipe TEXT NOT NULL,
@@ -96,202 +80,132 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ══ NETFLIX ═══════════════════════════════════════════════
+# ══ UTILS DB ══════════════════════════════════════════════
 
-def netflix_tambah(data: dict) -> int:
+def q(table, where_id):
     conn = get_conn()
     c = conn.cursor()
-    c.execute('''INSERT INTO netflix (email, password, metode_bayar, expired_akun, catatan)
-                 VALUES (?,?,?,?,?)''',
-              (data['email'], data['password'], data.get('metode_bayar','Visa'),
-               data.get('expired_akun',''), data.get('catatan','')))
-    nid = c.lastrowid
-    conn.commit(); conn.close()
-    return nid
-
-def netflix_get_all():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM netflix WHERE status='aktif' ORDER BY id DESC")
-    r = c.fetchall(); conn.close(); return r
-
-def netflix_get(nid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM netflix WHERE id=?", (nid,))
+    c.execute(f"SELECT * FROM {table} WHERE id=?", (where_id,))
     r = c.fetchone(); conn.close(); return r
 
-def netflix_update(nid, data):
+def qa(table, where_col=None, where_val=None, order="id"):
+    conn = get_conn()
+    c = conn.cursor()
+    if where_col:
+        c.execute(f"SELECT * FROM {table} WHERE {where_col}=? ORDER BY {order}", (where_val,))
+    else:
+        c.execute(f"SELECT * FROM {table} ORDER BY {order}")
+    r = c.fetchall(); conn.close(); return r
+
+def upd(table, row_id, data):
     conn = get_conn()
     c = conn.cursor()
     fields = ', '.join([f"{k}=?" for k in data.keys()])
-    c.execute(f"UPDATE netflix SET {fields} WHERE id=?", list(data.values())+[nid])
+    c.execute(f"UPDATE {table} SET {fields} WHERE id=?", list(data.values())+[row_id])
     conn.commit(); conn.close()
 
-def netflix_hapus(nid):
+def ins(table, data):
+    conn = get_conn()
+    c = conn.cursor()
+    keys = ', '.join(data.keys())
+    vals = ', '.join(['?']*len(data))
+    c.execute(f"INSERT INTO {table} ({keys}) VALUES ({vals})", list(data.values()))
+    rid = c.lastrowid; conn.commit(); conn.close(); return rid
+
+def delete(table, row_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(f"DELETE FROM {table} WHERE id=?", (row_id,))
+    conn.commit(); conn.close()
+
+# ══ NETFLIX ═══════════════════════════════════════════════
+
+def nf_all(status=None):
+    conn = get_conn()
+    c = conn.cursor()
+    if status:
+        c.execute("SELECT * FROM netflix WHERE status=? ORDER BY id DESC", (status,))
+    else:
+        c.execute("SELECT * FROM netflix WHERE status='aktif' ORDER BY id DESC")
+    r = c.fetchall(); conn.close(); return r
+
+def nf_get(nid): return q("netflix", nid)
+
+def nf_add(data): return ins("netflix", data)
+
+def nf_update(nid, data): upd("netflix", nid, data)
+
+def nf_delete(nid):
     conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM netflix WHERE id=?", (nid,))
     c.execute("DELETE FROM netflix_profil WHERE netflix_id=?", (nid,))
     conn.commit(); conn.close()
 
-def profil_tambah(nid, data) -> int:
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute('''INSERT INTO netflix_profil
-                 (netflix_id, nomor_profil, nama_profil, nama_pelanggan, no_hp, expired, harga)
-                 VALUES (?,?,?,?,?,?,?)''',
-              (nid, data['nomor_profil'], data.get('nama_profil',''),
-               data.get('nama_pelanggan',''), data.get('no_hp',''),
-               data['expired'], data.get('harga',0)))
-    pid = c.lastrowid
-    conn.commit(); conn.close(); return pid
+def profil_all(nid):
+    return qa("netflix_profil", "netflix_id", nid, "nomor")
 
-def profil_get_all(nid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM netflix_profil WHERE netflix_id=? ORDER BY nomor_profil", (nid,))
-    r = c.fetchall(); conn.close(); return r
+def profil_get(pid): return q("netflix_profil", pid)
 
-def profil_get(pid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM netflix_profil WHERE id=?", (pid,))
-    r = c.fetchone(); conn.close(); return r
+def profil_add(data): return ins("netflix_profil", data)
 
-def profil_update(pid, data):
-    conn = get_conn()
-    c = conn.cursor()
-    fields = ', '.join([f"{k}=?" for k in data.keys()])
-    c.execute(f"UPDATE netflix_profil SET {fields} WHERE id=?", list(data.values())+[pid])
-    conn.commit(); conn.close()
+def profil_update(pid, data): upd("netflix_profil", pid, data)
 
-def profil_hapus(pid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("DELETE FROM netflix_profil WHERE id=?", (pid,))
-    conn.commit(); conn.close()
+def profil_delete(pid): delete("netflix_profil", pid)
 
 # ══ DISNEY+ ═══════════════════════════════════════════════
 
-def disney_tambah(data) -> int:
+def ds_all(status=None):
     conn = get_conn()
     c = conn.cursor()
-    c.execute('''INSERT INTO disney (no_hp, email, password, expired_langganan, harga, catatan)
-                 VALUES (?,?,?,?,?,?)''',
-              (data.get('no_hp',''), data['email'], data.get('password',''),
-               data['expired_langganan'], data.get('harga',0), data.get('catatan','')))
-    did = c.lastrowid
-    conn.commit(); conn.close(); return did
-
-def disney_get_all():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM disney WHERE status='aktif' ORDER BY expired_langganan ASC")
+    if status:
+        c.execute("SELECT * FROM disney WHERE status=? ORDER BY expired_langganan ASC", (status,))
+    else:
+        c.execute("SELECT * FROM disney WHERE status='aktif' ORDER BY expired_langganan ASC")
     r = c.fetchall(); conn.close(); return r
 
-def disney_get(did):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM disney WHERE id=?", (did,))
-    r = c.fetchone(); conn.close(); return r
+def ds_get(did): return q("disney", did)
 
-def disney_update(did, data):
-    conn = get_conn()
-    c = conn.cursor()
-    fields = ', '.join([f"{k}=?" for k in data.keys()])
-    c.execute(f"UPDATE disney SET {fields} WHERE id=?", list(data.values())+[did])
-    conn.commit(); conn.close()
+def ds_add(data): return ins("disney", data)
 
-def disney_hapus(did):
+def ds_update(did, data): upd("disney", did, data)
+
+def ds_delete(did):
     conn = get_conn()
     c = conn.cursor()
     c.execute("DELETE FROM disney WHERE id=?", (did,))
     c.execute("DELETE FROM disney_perangkat WHERE disney_id=?", (did,))
     conn.commit(); conn.close()
 
-def perangkat_tambah(did, data) -> int:
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute('''INSERT INTO disney_perangkat
-                 (disney_id, nama_perangkat, nama_pelanggan, no_hp, tanggal_login)
-                 VALUES (?,?,?,?,?)''',
-              (did, data['nama_perangkat'], data.get('nama_pelanggan',''),
-               data.get('no_hp',''), data.get('tanggal_login','')))
-    rid = c.lastrowid
-    conn.commit(); conn.close(); return rid
+def perangkat_all(did):
+    return qa("disney_perangkat", "disney_id", did, "id")
 
-def perangkat_get_all(did):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM disney_perangkat WHERE disney_id=? AND status='aktif'", (did,))
-    r = c.fetchall(); conn.close(); return r
+def perangkat_get(rid): return q("disney_perangkat", rid)
 
-def perangkat_hapus(rid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("DELETE FROM disney_perangkat WHERE id=?", (rid,))
-    conn.commit(); conn.close()
+def perangkat_add(data): return ins("disney_perangkat", data)
+
+def perangkat_update(rid, data): upd("disney_perangkat", rid, data)
+
+def perangkat_delete(rid): delete("disney_perangkat", rid)
 
 # ══ YOUTUBE ════════════════════════════════════════════════
 
-def yt_tambah(data) -> int:
+def yt_all(status=None):
     conn = get_conn()
     c = conn.cursor()
-    c.execute('''INSERT INTO youtube (email_akun, password, expired_langganan, harga, catatan)
-                 VALUES (?,?,?,?,?)''',
-              (data['email_akun'], data.get('password',''),
-               data['expired_langganan'], data.get('harga',0), data.get('catatan','')))
-    yid = c.lastrowid
-    conn.commit(); conn.close(); return yid
-
-def yt_get_all():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM youtube WHERE status='aktif' ORDER BY expired_langganan ASC")
+    if status:
+        c.execute("SELECT * FROM youtube WHERE status=? ORDER BY expired ASC", (status,))
+    else:
+        c.execute("SELECT * FROM youtube WHERE status='aktif' ORDER BY expired ASC")
     r = c.fetchall(); conn.close(); return r
 
-def yt_get(yid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM youtube WHERE id=?", (yid,))
-    r = c.fetchone(); conn.close(); return r
+def yt_get(yid): return q("youtube", yid)
 
-def yt_update(yid, data):
-    conn = get_conn()
-    c = conn.cursor()
-    fields = ', '.join([f"{k}=?" for k in data.keys()])
-    c.execute(f"UPDATE youtube SET {fields} WHERE id=?", list(data.values())+[yid])
-    conn.commit(); conn.close()
+def yt_add(data): return ins("youtube", data)
 
-def yt_hapus(yid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("DELETE FROM youtube WHERE id=?", (yid,))
-    c.execute("DELETE FROM youtube_member WHERE youtube_id=?", (yid,))
-    conn.commit(); conn.close()
+def yt_update(yid, data): upd("youtube", yid, data)
 
-def member_tambah(yid, data) -> int:
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute('''INSERT INTO youtube_member
-                 (youtube_id, email_pembeli, nama_pelanggan, no_hp)
-                 VALUES (?,?,?,?)''',
-              (yid, data['email_pembeli'], data.get('nama_pelanggan',''), data.get('no_hp','')))
-    mid = c.lastrowid
-    conn.commit(); conn.close(); return mid
-
-def member_get_all(yid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("SELECT * FROM youtube_member WHERE youtube_id=? AND status='aktif'", (yid,))
-    r = c.fetchall(); conn.close(); return r
-
-def member_hapus(mid):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("DELETE FROM youtube_member WHERE id=?", (mid,))
-    conn.commit(); conn.close()
+def yt_delete(yid): delete("youtube", yid)
 
 # ══ PENGINGAT ══════════════════════════════════════════════
 
@@ -303,26 +217,61 @@ def sudah_kirim(tipe, ref_id, jenis, tgl):
     r = c.fetchone(); conn.close(); return r is not None
 
 def simpan_log(tipe, ref_id, jenis, tgl):
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("INSERT INTO pengingat_log (tipe,ref_id,jenis,tanggal) VALUES (?,?,?,?)",
-              (tipe, ref_id, jenis, tgl))
-    conn.commit(); conn.close()
+    ins("pengingat_log", {"tipe":tipe,"ref_id":ref_id,"jenis":jenis,"tanggal":tgl})
 
-def get_statistik():
+# ══ STATISTIK ══════════════════════════════════════════════
+
+def get_stats():
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) as n FROM netflix WHERE status='aktif'")
-    nf = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM disney WHERE status='aktif'")
-    ds = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM youtube WHERE status='aktif'")
-    yt = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM netflix_profil WHERE status='aktif'")
-    profil = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM disney_perangkat WHERE status='aktif'")
-    perangkat = c.fetchone()['n']
-    c.execute("SELECT COUNT(*) as n FROM youtube_member WHERE status='aktif'")
-    member = c.fetchone()['n']
+    c.execute("SELECT COUNT(*) as n FROM netflix WHERE status='aktif'"); nf=c.fetchone()['n']
+    c.execute("SELECT COUNT(*) as n FROM netflix_profil WHERE status='aktif'"); pr=c.fetchone()['n']
+    c.execute("SELECT COUNT(*) as n FROM disney WHERE status='aktif'"); ds=c.fetchone()['n']
+    c.execute("SELECT COUNT(*) as n FROM disney_perangkat WHERE status='aktif'"); pg=c.fetchone()['n']
+    c.execute("SELECT COUNT(*) as n FROM youtube WHERE status='aktif'"); yt=c.fetchone()['n']
     conn.close()
-    return {'netflix':nf,'disney':ds,'youtube':yt,'profil':profil,'perangkat':perangkat,'member':member}
+    return {"netflix":nf,"profil":pr,"disney":ds,"perangkat":pg,"youtube":yt}
+
+# ══ BACKUP ═════════════════════════════════════════════════
+
+def get_backup_text():
+    from utils import format_tgl, sisa_hari, status_icon
+    from datetime import date
+    teks = f"📋 *BACKUP DATA — {date.today().strftime('%d %B %Y')}*\n"
+    teks += "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # Netflix
+    teks += "🎬 *NETFLIX*\n"
+    for n in nf_all():
+        teks += f"📧 `{n['email']}`\n"
+        teks += f"🔑 `{n['password']}`\n"
+        teks += f"📅 Ubah PW: {n['tgl_ubah_pw'] or '-'}\n"
+        for p in profil_all(n['id']):
+            sisa = sisa_hari(p['expired']) if p['expired'] else 999
+            icon = status_icon(sisa)
+            teks += f"  {icon} {p['nama']} | {p['pin'] or '-'} | {format_tgl(p['expired']) if p['expired'] else 'Aktif'}\n"
+        teks += "\n"
+
+    # Disney
+    teks += "🏰 *DISNEY+*\n"
+    for d in ds_all():
+        teks += f"📦 {d['nama_paket']}\n"
+        teks += f"📱 {d['no_hp'] or '-'}\n"
+        teks += f"📧 `{d['email']}`\n"
+        teks += f"⏰ {format_tgl(d['expired_langganan'])}\n"
+        for p in perangkat_all(d['id']):
+            sisa = sisa_hari(p['expired']) if p['expired'] else 999
+            icon = status_icon(sisa)
+            teks += f"  {icon} {p['nama']} | {format_tgl(p['expired']) if p['expired'] else '-'}\n"
+        teks += "\n"
+
+    # YouTube
+    teks += "📺 *YOUTUBE*\n"
+    for y in yt_all():
+        sisa = sisa_hari(y['expired'])
+        icon = status_icon(sisa)
+        teks += f"📧 `{y['email']}`\n"
+        teks += f"🔑 `{y['password'] or '-'}`\n"
+        teks += f"{icon} Expired: {format_tgl(y['expired'])}\n\n"
+
+    return teks

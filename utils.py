@@ -14,7 +14,7 @@ def sisa_hari(exp):
 
 def format_tgl(tgl):
     try: return datetime.strptime(tgl, "%Y-%m-%d").strftime("%d %B %Y")
-    except: return tgl
+    except: return tgl or '-'
 
 def validasi_tgl(tgl):
     for fmt in ["%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"]:
@@ -29,4 +29,5 @@ def status_icon(sisa):
     return "🟢"
 
 def format_rp(n):
-    return f"Rp {n:,}".replace(",", ".")
+    try: return f"Rp {int(n):,}".replace(",", ".")
+    except: return "Rp 0"
