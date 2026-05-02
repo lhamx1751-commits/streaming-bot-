@@ -1,0 +1,183 @@
+cat > /mnt/user-data/outputs/database.py << 'EOF'
+# PURE SQLITE - No PostgreSQL, No external drivers needed
+import os, sqlite3
+
+DB_PATH = os.path.join(os.getenv("DATA_DIR", "."), "streaming.db")
+print(f"✅ Database SQLite: {DB_PATH}")
+
+def get_conn():
+    os.makedirs(os.path.dirname(DB_PATH) if os.path.dirname(DB_PATH) else ".", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def _fix(sql):
+    import re
+    return re.sub(r'\$\d+', '?', sql)
+
+def fetchone(sql, params=()):
+    conn = get_conn()
+    try:
+        r = conn.execute(_fix(sql), params).fetchone()
+        return dict(r) if r else None
+    finally:
+        conn.close()
+
+def fetchall(sql, params=()):
+    conn = get_conn()
+    try:
+        return [dict(r) for r in conn.execute(_fix(sql), params).fetchall()]
+    finally:
+        conn.close()
+
+def execute(sql, params=()):
+    conn = get_conn()
+    try:
+        conn.execute(_fix(sql), params)
+        conn.commit()
+    finally:
+        conn.close()
+
+def insert(sql, params=()):
+    conn = get_conn()
+    try:
+        c = conn.execute(_fix(sql), params)
+        conn.commit()
+        return c.lastrowid
+    finally:
+        conn.close()
+
+def init_db():
+    conn = get_conn()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS netflix (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL,
+            password TEXT, tgl_ubah_pw TEXT, metode_bayar TEXT, catatan TEXT,
+            status TEXT DEFAULT 'aktif',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS netflix_profil (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, netflix_id INTEGER NOT NULL,
+            nomor INTEGER NOT NULL, nama TEXT NOT NULL, pin TEXT,
+            expired TEXT, status TEXT DEFAULT 'aktif');
+        CREATE TABLE IF NOT EXISTS disney (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nama_paket TEXT DEFAULT 'DISNEY 1 BULAN SHARING',
+            no_hp TEXT, email TEXT NOT NULL, expired_langganan TEXT NOT NULL,
+            catatan TEXT, status TEXT DEFAULT 'aktif',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS disney_perangkat (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, disney_id INTEGER NOT NULL,
+            nama TEXT NOT NULL, expired TEXT, status TEXT DEFAULT 'aktif');
+        CREATE TABLE IF NOT EXISTS youtube (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL,
+            password TEXT, expired TEXT NOT NULL, catatan TEXT,
+            status TEXT DEFAULT 'aktif',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS pengingat_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tipe TEXT NOT NULL,
+            ref_id INTEGER NOT NULL, jenis TEXT NOT NULL, tanggal TEXT NOT NULL);
+    ''')
+    conn.commit()
+    conn.close()
+    print("✅ Tabel siap!")
+
+def nf_all(status='aktif'):
+    if status: return fetchall("SELECT * FROM netflix WHERE status=$1 ORDER BY id DESC",(status,))
+    return fetchall("SELECT * FROM netflix ORDER BY id DESC")
+
+def nf_get(nid): return fetchone("SELECT * FROM netflix WHERE id=$1",(nid,))
+def nf_add(data):
+    return insert("INSERT INTO netflix (email,password,tgl_ubah_pw,metode_bayar,catatan) VALUES ($1,$2,$3,$4,$5)",
+        (data.get('email'),data.get('password',''),data.get('tgl_ubah_pw',''),data.get('metode_bayar',''),data.get('catatan','')))
+def nf_update(nid,data):
+    for k,v in data.items(): execute(f"UPDATE netflix SET {k}=$1 WHERE id=$2",(v,nid))
+def nf_delete(nid):
+    execute("DELETE FROM netflix_profil WHERE netflix_id=$1",(nid,))
+    execute("DELETE FROM netflix WHERE id=$1",(nid,))
+def profil_all(nid): return fetchall("SELECT * FROM netflix_profil WHERE netflix_id=$1 ORDER BY nomor",(nid,))
+def profil_get(pid): return fetchone("SELECT * FROM netflix_profil WHERE id=$1",(pid,))
+def profil_add(data):
+    return insert("INSERT INTO netflix_profil (netflix_id,nomor,nama,pin,expired) VALUES ($1,$2,$3,$4,$5)",
+        (data.get('netflix_id'),data.get('nomor'),data.get('nama'),data.get('pin',''),data.get('expired','')))
+def profil_update(pid,data):
+    for k,v in data.items(): execute(f"UPDATE netflix_profil SET {k}=$1 WHERE id=$2",(v,pid))
+def profil_delete(pid): execute("DELETE FROM netflix_profil WHERE id=$1",(pid,))
+
+def ds_all(status='aktif'):
+    if status: return fetchall("SELECT * FROM disney WHERE status=$1 ORDER BY expired_langganan ASC",(status,))
+    return fetchall("SELECT * FROM disney ORDER BY expired_langganan ASC")
+def ds_get(did): return fetchone("SELECT * FROM disney WHERE id=$1",(did,))
+def ds_add(data):
+    return insert("INSERT INTO disney (nama_paket,no_hp,email,expired_langganan,catatan) VALUES ($1,$2,$3,$4,$5)",
+        (data.get('nama_paket','DISNEY 1 BULAN SHARING'),data.get('no_hp',''),data.get('email'),data.get('expired_langganan'),data.get('catatan','')))
+def ds_update(did,data):
+    for k,v in data.items(): execute(f"UPDATE disney SET {k}=$1 WHERE id=$2",(v,did))
+def ds_delete(did):
+    execute("DELETE FROM disney_perangkat WHERE disney_id=$1",(did,))
+    execute("DELETE FROM disney WHERE id=$1",(did,))
+def perangkat_all(did): return fetchall("SELECT * FROM disney_perangkat WHERE disney_id=$1 AND status='aktif' ORDER BY id",(did,))
+def perangkat_get(rid): return fetchone("SELECT * FROM disney_perangkat WHERE id=$1",(rid,))
+def perangkat_add(data):
+    return insert("INSERT INTO disney_perangkat (disney_id,nama,expired) VALUES ($1,$2,$3)",
+        (data.get('disney_id'),data.get('nama'),data.get('expired','')))
+def perangkat_update(rid,data):
+    for k,v in data.items(): execute(f"UPDATE disney_perangkat SET {k}=$1 WHERE id=$2",(v,rid))
+def perangkat_delete(rid): execute("DELETE FROM disney_perangkat WHERE id=$1",(rid,))
+
+def yt_all(status='aktif'):
+    if status: return fetchall("SELECT * FROM youtube WHERE status=$1 ORDER BY expired ASC",(status,))
+    return fetchall("SELECT * FROM youtube ORDER BY expired ASC")
+def yt_get(yid): return fetchone("SELECT * FROM youtube WHERE id=$1",(yid,))
+def yt_add(data):
+    return insert("INSERT INTO youtube (email,password,expired,catatan) VALUES ($1,$2,$3,$4)",
+        (data.get('email'),data.get('password',''),data.get('expired'),data.get('catatan','')))
+def yt_update(yid,data):
+    for k,v in data.items(): execute(f"UPDATE youtube SET {k}=$1 WHERE id=$2",(v,yid))
+def yt_delete(yid): execute("DELETE FROM youtube WHERE id=$1",(yid,))
+
+def sudah_kirim(tipe,ref_id,jenis,tgl):
+    return fetchone("SELECT id FROM pengingat_log WHERE tipe=$1 AND ref_id=$2 AND jenis=$3 AND tanggal=$4",
+                    (tipe,ref_id,jenis,tgl)) is not None
+def simpan_log(tipe,ref_id,jenis,tgl):
+    insert("INSERT INTO pengingat_log (tipe,ref_id,jenis,tanggal) VALUES ($1,$2,$3,$4)",(tipe,ref_id,jenis,tgl))
+
+def get_stats():
+    return {
+        "netflix": (fetchone("SELECT COUNT(*) as n FROM netflix WHERE status='aktif'") or {}).get('n',0),
+        "profil": (fetchone("SELECT COUNT(*) as n FROM netflix_profil WHERE status='aktif'") or {}).get('n',0),
+        "disney": (fetchone("SELECT COUNT(*) as n FROM disney WHERE status='aktif'") or {}).get('n',0),
+        "perangkat": (fetchone("SELECT COUNT(*) as n FROM disney_perangkat WHERE status='aktif'") or {}).get('n',0),
+        "youtube": (fetchone("SELECT COUNT(*) as n FROM youtube WHERE status='aktif'") or {}).get('n',0),
+    }
+
+def get_backup_text():
+    from utils import format_tgl, sisa_hari, status_icon
+    from datetime import date
+    teks = f"📋 *BACKUP DATA — {date.today().strftime('%d %B %Y')}*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    teks += "🎬 *NETFLIX*\n"
+    for n in nf_all():
+        teks += f"┌ 📧 `{n['email']}`\n├ 🔑 `{n.get('password') or '-'}`\n├ 📅 {n.get('tgl_ubah_pw') or '-'}\n└ 👥 Profil:\n"
+        for p in profil_all(n['id']):
+            sisa = sisa_hari(p.get('expired','')) if p.get('expired') else 999
+            teks += f"   {status_icon(sisa)} {p['nomor']}. {p['nama']} | {p.get('pin') or '-'} | {format_tgl(p['expired']) if p.get('expired') else 'Aktif'}\n"
+        teks += "\n"
+    teks += "🏰 *DISNEY+*\n"
+    for d in ds_all():
+        teks += f"┌ 📦 {d['nama_paket']}\n├ 📱 {d.get('no_hp') or '-'}\n├ 📧 `{d['email']}`\n├ ⏰ {format_tgl(d['expired_langganan'])}\n└ 📱 Perangkat:\n"
+        for p in perangkat_all(d['id']):
+            sisa = sisa_hari(p.get('expired','')) if p.get('expired') else 999
+            teks += f"   {status_icon(sisa)} {p['nama']} | {format_tgl(p['expired']) if p.get('expired') else '-'}\n"
+        teks += "\n"
+    teks += "📺 *YOUTUBE*\n"
+    for y in yt_all():
+        sisa = sisa_hari(y['expired'])
+        teks += f"┌ 📧 `{y['email']}`\n├ 🔑 `{y.get('password') or '-'}`\n└ {status_icon(sisa)} {format_tgl(y['expired'])}\n\n"
+    return teks
+EOF
+
+cat > /mnt/user-data/outputs/requirements.txt << 'EOF'
+python-telegram-bot[job-queue]==21.6
+python-dotenv==1.0.1
+pytz==2024.1
+EOF
+echo "Done"
