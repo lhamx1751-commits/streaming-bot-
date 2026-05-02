@@ -5,28 +5,27 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
-def get_pg_config():
-    url = urlparse.urlparse(DATABASE_URL)
-    return {
-        "host": url.hostname,
-        "port": url.port or 5432,
-        "database": url.path[1:],
-        "user": url.username,
-        "password": url.password,
-        "ssl_context": True
-    }
-
 def get_conn():
-    cfg = get_pg_config()
-    return pg8000.native.Connection(**cfg)
+    url = urlparse.urlparse(DATABASE_URL)
+    host = url.hostname
+    # Internal Railway hostname - no SSL needed
+    use_ssl = not (host and "railway.internal" in host)
+    
+    conn = pg8000.native.Connection(
+        host=host,
+        port=url.port or 5432,
+        database=url.path[1:],
+        user=url.username,
+        password=url.password,
+        ssl_context=use_ssl
+    )
+    return conn
 
 def fetchone(sql, params=()):
     conn = get_conn()
     try:
-        # Convert $1,$2 style (already correct for pg8000)
         rows = conn.run(sql, *params)
-        if not rows:
-            return None
+        if not rows: return None
         cols = [c['name'] for c in conn.columns]
         return dict(zip(cols, rows[0]))
     finally:
@@ -36,8 +35,7 @@ def fetchall(sql, params=()):
     conn = get_conn()
     try:
         rows = conn.run(sql, *params)
-        if not rows:
-            return []
+        if not rows: return []
         cols = [c['name'] for c in conn.columns]
         return [dict(zip(cols, row)) for row in rows]
     finally:
@@ -221,10 +219,12 @@ def yt_delete(yid): execute("DELETE FROM youtube WHERE id=$1", (yid,))
 # ══ PENGINGAT ══════════════════════════════════════════════
 
 def sudah_kirim(tipe, ref_id, jenis, tgl):
-    return fetchone("SELECT id FROM pengingat_log WHERE tipe=$1 AND ref_id=$2 AND jenis=$3 AND tanggal=$4", (tipe, ref_id, jenis, tgl)) is not None
+    return fetchone("SELECT id FROM pengingat_log WHERE tipe=$1 AND ref_id=$2 AND jenis=$3 AND tanggal=$4",
+                    (tipe, ref_id, jenis, tgl)) is not None
 
 def simpan_log(tipe, ref_id, jenis, tgl):
-    insert("INSERT INTO pengingat_log (tipe, ref_id, jenis, tanggal) VALUES ($1,$2,$3,$4)", (tipe, ref_id, jenis, tgl))
+    insert("INSERT INTO pengingat_log (tipe, ref_id, jenis, tanggal) VALUES ($1,$2,$3,$4)",
+           (tipe, ref_id, jenis, tgl))
 
 def get_stats():
     nf = (fetchone("SELECT COUNT(*) as n FROM netflix WHERE status='aktif'") or {}).get('n', 0)
@@ -232,7 +232,7 @@ def get_stats():
     ds = (fetchone("SELECT COUNT(*) as n FROM disney WHERE status='aktif'") or {}).get('n', 0)
     pg = (fetchone("SELECT COUNT(*) as n FROM disney_perangkat WHERE status='aktif'") or {}).get('n', 0)
     yt = (fetchone("SELECT COUNT(*) as n FROM youtube WHERE status='aktif'") or {}).get('n', 0)
-    return {"netflix":nf,"profil":pr,"disney":ds,"perangkat":pg,"youtube":yt}
+    return {"netflix": nf, "profil": pr, "disney": ds, "perangkat": pg, "youtube": yt}
 
 def get_backup_text():
     from utils import format_tgl, sisa_hari, status_icon
@@ -242,15 +242,15 @@ def get_backup_text():
     for n in nf_all():
         teks += f"┌ 📧 `{n['email']}`\n├ 🔑 `{n.get('password') or '-'}`\n├ 📅 {n.get('tgl_ubah_pw') or '-'}\n└ 👥 Profil:\n"
         for p in profil_all(n['id']):
-            sisa = sisa_hari(p.get('expired','')) if p.get('expired') else 999
-            teks += f"   {status_icon(sisa)} {p['nomor']}. {p['nama']} | {p.get('pin') or '-'} | {format_tgl(p.get('expired','')) if p.get('expired') else 'Aktif'}\n"
+            sisa = sisa_hari(p.get('expired', '')) if p.get('expired') else 999
+            teks += f"   {status_icon(sisa)} {p['nomor']}. {p['nama']} | {p.get('pin') or '-'} | {format_tgl(p.get('expired', '')) if p.get('expired') else 'Aktif'}\n"
         teks += "\n"
     teks += "🏰 *DISNEY+*\n"
     for d in ds_all():
         teks += f"┌ 📦 {d['nama_paket']}\n├ 📱 {d.get('no_hp') or '-'}\n├ 📧 `{d['email']}`\n├ ⏰ {format_tgl(d['expired_langganan'])}\n└ 📱 Perangkat:\n"
         for p in perangkat_all(d['id']):
-            sisa = sisa_hari(p.get('expired','')) if p.get('expired') else 999
-            teks += f"   {status_icon(sisa)} {p['nama']} | {format_tgl(p.get('expired','')) if p.get('expired') else '-'}\n"
+            sisa = sisa_hari(p.get('expired', '')) if p.get('expired') else 999
+            teks += f"   {status_icon(sisa)} {p['nama']} | {format_tgl(p.get('expired', '')) if p.get('expired') else '-'}\n"
         teks += "\n"
     teks += "📺 *YOUTUBE*\n"
     for y in yt_all():
