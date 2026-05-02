@@ -41,43 +41,33 @@ def main():
     init_db()
     app = Application.builder().token(BOT_TOKEN).post_init(setup_commands).build()
 
-    # Conversation handlers
     for conv in [
         conv_bulk_perangkat(), conv_bulk_profil(),
-        conv_tambah_netflix(), conv_tambah_profil(), conv_edit_netflix(),
-        conv_edit_profil(), conv_perp_netflix(),
-        conv_tambah_disney(), conv_tambah_perangkat(), conv_edit_disney(),
-        conv_edit_perangkat(), conv_perp_disney(),
+        conv_tambah_netflix(), conv_tambah_profil(),
+        conv_edit_netflix(), conv_edit_profil(), conv_perp_netflix(),
+        conv_tambah_disney(), conv_tambah_perangkat(),
+        conv_edit_disney(), conv_edit_perangkat(), conv_perp_disney(),
         conv_tambah_youtube(), conv_edit_youtube(), conv_perp_youtube(),
         conv_cari(),
     ]:
         app.add_handler(conv)
 
-    # Commands
     app.add_handler(CommandHandler("start", start_handler))
-
-    # Callbacks
     app.add_handler(CallbackQueryHandler(start_handler, pattern="^start_menu$"))
     app.add_handler(CallbackQueryHandler(netflix_callback, pattern="^(menu_netflix|nf_)"))
     app.add_handler(CallbackQueryHandler(disney_callback, pattern="^(menu_disney|ds_)"))
     app.add_handler(CallbackQueryHandler(youtube_callback, pattern="^(menu_youtube|yt_)"))
     app.add_handler(CallbackQueryHandler(menu_callback, pattern="^menu_"))
-
-    # Welcome handler
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, welcome_handler))
-
     app.add_error_handler(error_handler)
 
-    # Pengingat otomatis setiap jam
     app.job_queue.run_repeating(cek_pengingat, interval=3600, first=10)
-
-    # Laporan pagi jam 08:00 WIB
     app.job_queue.run_daily(
         kirim_laporan_pagi,
         time=__import__('datetime').time(8, 0, 0, tzinfo=WIB)
     )
 
-    logger.info("✅ Streaming Manager Bot v4 aktif!")
+    logger.info("✅ Streaming Manager Bot v5 aktif!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
