@@ -1,28 +1,25 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters, CallbackQueryHandler
-from database import nf_add, nf_update, nf_get, profil_add, profil_update, profil_get, profil_all
-from database import ds_add, ds_update, ds_get, perangkat_add, perangkat_update, perangkat_get
-from database import yt_add, yt_update, yt_get
-from utils import validasi_tgl, format_tgl
+from database import *
+from utils import validasi_tgl, format_tgl, parse_bulk_perangkat, parse_bulk_profil
 
-# ── STATES ───────────────────────────────────────────────
-NF_EMAIL, NF_PASS, NF_UBAH_PW, NF_CATATAN = range(4)
-PR_NOMOR, PR_NAMA, PR_PIN, PR_EXPIRED = range(10, 14)
-EDIT_NF_FIELD, EDIT_NF_VAL = range(20, 22)
-EDIT_PR_FIELD, EDIT_PR_VAL = range(22, 24)
-PERP_NF_TGL = 24
-
-DS_HP, DS_EMAIL, DS_PASS, DS_PAKET, DS_EXPIRED, DS_CATATAN = range(30, 36)
-PG_NAMA, PG_EXPIRED = range(36, 38)
-EDIT_DS_FIELD, EDIT_DS_VAL = range(38, 40)
-EDIT_PG_FIELD, EDIT_PG_VAL = range(40, 42)
-PERP_DS_TGL = 42
-
-YT_EMAIL, YT_PASS, YT_EXPIRED, YT_CATATAN = range(50, 54)
-EDIT_YT_FIELD, EDIT_YT_VAL = range(54, 56)
-PERP_YT_TGL = 56
-
+# States
+NF_EMAIL, NF_PASS, NF_UBAH_PW, NF_METODE, NF_CATATAN = range(5)
+PR_NOMOR, PR_NAMA, PR_PIN, PR_EXPIRED = range(10,14)
+EDIT_NF_F, EDIT_NF_V = range(20,22)
+EDIT_PR_F, EDIT_PR_V = range(22,24)
+PERP_NF = 24
+DS_PAKET, DS_HP, DS_EMAIL, DS_EXPIRED, DS_CATATAN = range(30,35)
+PG_NAMA, PG_EXPIRED = range(36,38)
+EDIT_DS_F, EDIT_DS_V = range(38,40)
+EDIT_PG_F, EDIT_PG_V = range(40,42)
+PERP_DS = 42
+YT_EMAIL, YT_PASS, YT_EXPIRED, YT_CATATAN = range(50,54)
+EDIT_YT_F, EDIT_YT_V = range(54,56)
+PERP_YT = 56
 CARI_INPUT = 60
+BULK_PG = 70
+BULK_PR = 71
 
 async def batal(update, context):
     context.user_data.clear()
@@ -38,41 +35,51 @@ def conv_tambah_netflix():
             NF_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, nf_email)],
             NF_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, nf_pass)],
             NF_UBAH_PW: [MessageHandler(filters.TEXT & ~filters.COMMAND, nf_ubah_pw)],
+            NF_METODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, nf_metode)],
             NF_CATATAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, nf_catatan)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="tambah_nf", persistent=False,
+        name="tnf", persistent=False,
     )
 
 async def nf_mulai(update, context):
     await update.callback_query.answer()
     context.user_data.clear()
     await update.callback_query.message.reply_text(
-        "🎬 *Tambah Akun Netflix*\n/batal untuk cancel\n\n*1/4* — Masukkan *email Netflix*:",
+        "🎬 *Tambah Akun Netflix*\n/batal untuk cancel\n\n*1/5* — Masukkan *email Netflix*:",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
     return NF_EMAIL
 
 async def nf_email(update, context):
     context.user_data['email'] = update.message.text.strip()
-    await update.message.reply_text("*2/4* — Masukkan *password*:", parse_mode='Markdown')
+    await update.message.reply_text("*2/5* — *Password*:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
     return NF_PASS
 
 async def nf_pass(update, context):
     context.user_data['password'] = update.message.text.strip()
-    await update.message.reply_text("*3/4* — *Tanggal ubah password* terakhir:\n_(contoh: 6 April 2026, atau '-')_", parse_mode='Markdown')
+    await update.message.reply_text("*3/5* — *Tanggal ubah password* terakhir:\n_(contoh: 1 April 2026, atau '-')_", parse_mode='Markdown')
     return NF_UBAH_PW
 
 async def nf_ubah_pw(update, context):
     context.user_data['tgl_ubah_pw'] = update.message.text.strip()
-    await update.message.reply_text("*4/4* — *Catatan* tambahan:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
+    kb = ReplyKeyboardMarkup([["Visa","Mastercard"],["GoPay","OVO"],["Transfer","-"]], one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("*4/5* — *Metode bayar*:", parse_mode='Markdown', reply_markup=kb)
+    return NF_METODE
+
+async def nf_metode(update, context):
+    context.user_data['metode_bayar'] = update.message.text.strip()
+    await update.message.reply_text("*5/5* — *Catatan*:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     return NF_CATATAN
 
 async def nf_catatan(update, context):
     context.user_data['catatan'] = update.message.text.strip()
     nid = nf_add(context.user_data)
     await update.message.reply_text(
-        f"✅ *Akun Netflix berhasil ditambahkan!*\n\n📧 {context.user_data['email']}\nID: #{nid}\n\nSekarang tambahkan profil dengan /start → Netflix → Kelola Profil",
+        f"✅ *Akun Netflix berhasil ditambahkan!*\n\n"
+        f"📧 {context.user_data['email']}\n"
+        f"🆔 ID: #{nid}\n\n"
+        f"Sekarang tambahkan profil via /start → Netflix → Kelola Profil",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
     context.user_data.clear()
@@ -90,7 +97,7 @@ def conv_tambah_profil():
             PR_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, pr_expired)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="tambah_profil", persistent=False,
+        name="tpr", persistent=False,
     )
 
 async def pr_mulai(update, context):
@@ -109,39 +116,128 @@ async def pr_mulai(update, context):
     return PR_NOMOR
 
 async def pr_nomor(update, context):
-    try:
-        context.user_data['nomor'] = int(update.message.text.strip())
+    try: context.user_data['nomor'] = int(update.message.text.strip())
     except:
         await update.message.reply_text("❌ Masukkan angka 1-5")
         return PR_NOMOR
-    await update.message.reply_text("*2/4* — *Nama profil*:\n_(contoh: Dyah)_", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("*2/4* — *Nama profil*:", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     return PR_NAMA
 
 async def pr_nama(update, context):
     context.user_data['nama'] = update.message.text.strip()
-    await update.message.reply_text("*3/4* — *PIN profil*:\n_(contoh: 1111, atau '-')_", parse_mode='Markdown')
+    await update.message.reply_text("*3/4* — *PIN*:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
     return PR_PIN
 
 async def pr_pin(update, context):
     context.user_data['pin'] = update.message.text.strip()
-    await update.message.reply_text("*4/4* — *Tanggal expired* profil ini:\n_(DD-MM-YYYY atau '-' jika aktif)_", parse_mode='Markdown')
+    await update.message.reply_text(
+        "ّ*4/4* — *Tanggal expired*:\n_(contoh: 17 Mei 2026, atau '-' jika aktif)_",
+        parse_mode='Markdown'
+    )
     return PR_EXPIRED
 
 async def pr_expired(update, context):
-    tgl = update.message.text.strip()
-    if tgl != '-':
-        tgl_db = validasi_tgl(tgl)
-        if not tgl_db:
-            await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-            return PR_EXPIRED
-        context.user_data['expired'] = tgl_db
-    else:
+    tgl_raw = update.message.text.strip()
+    if tgl_raw == '-':
         context.user_data['expired'] = ''
+    else:
+        tgl = validasi_tgl(tgl_raw)
+        if not tgl:
+            await update.message.reply_text("❌ Format salah! Contoh: 17 Mei 2026 atau 17-05-2026")
+            return PR_EXPIRED
+        context.user_data['expired'] = tgl
     profil_add(context.user_data)
     await update.message.reply_text(
         f"✅ *Profil {context.user_data['nomor']} — {context.user_data['nama']} berhasil ditambahkan!*\n\nKetik /start untuk kembali.",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+# ── BULK PROFIL ───────────────────────────────────────────
+
+def conv_bulk_profil():
+    return ConversationHandler(
+        entry_points=[CallbackQueryHandler(bulk_pr_mulai, pattern="^bulk_profil_")],
+        states={BULK_PR: [MessageHandler(filters.TEXT & ~filters.COMMAND, bulk_pr_proses)]},
+        fallbacks=[CommandHandler("batal", batal)],
+        name="bpr", persistent=False,
+    )
+
+async def bulk_pr_mulai(update, context):
+    await update.callback_query.answer()
+    nid = int(update.callback_query.data.split("_")[2])
+    context.user_data.clear()
+    context.user_data['bulk_nid'] = nid
+    n = nf_get(nid)
+    profil = profil_all(nid)
+    nomor_ada = [p['nomor'] for p in profil]
+    nomor_tersedia = [str(i) for i in range(1,6) if i not in nomor_ada]
+
+    teks = (
+        f"👥 *Bulk Tambah Profil Netflix*\n"
+        f"📧 {n['email']}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Slot tersedia: *{', '.join(nomor_tersedia)}*\n\n"
+        f"Kirim semua profil sekaligus, format bebas:\n\n"
+        f"Format 1 (dengan nomor):\n"
+        f"`1|Dyah|1111|17 Mei 2026`\n"
+        f"`2|Baylee|1888|18 Mei 2026`\n\n"
+        f"Format 2 (tanpa nomor, urut otomatis):\n"
+        f"`Dyah|1111|17 Mei 2026`\n"
+        f"`Baylee|1888|18 Mei 2026`\n\n"
+        f"Format 3 (tanggal natural):\n"
+        f"`Dyah|1111|17 mei 2026`\n"
+        f"`Baylee|1888|18-05-2026`\n\n"
+        f"⚠️ PIN & tanggal bisa dikosongkan\n"
+        f"Tulis *expired* jika sudah expired"
+    )
+    await update.callback_query.message.reply_text(teks, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return BULK_PR
+
+async def bulk_pr_proses(update, context):
+    nid = context.user_data['bulk_nid']
+    profil_existing = profil_all(nid)
+    nomor_ada = [p['nomor'] for p in profil_existing]
+    slot_tersedia = [i for i in range(1,6) if i not in nomor_ada]
+
+    hasil = parse_bulk_profil(update.message.text)
+    berhasil = []
+    gagal = []
+
+    for i, item in enumerate(hasil):
+        nomor = item.get('nomor', i+1)
+
+        # Assign nomor otomatis kalau tidak valid
+        if nomor not in slot_tersedia:
+            if slot_tersedia:
+                nomor = slot_tersedia[0]
+            else:
+                gagal.append(f"⚠️ {item['nama']} → Slot penuh")
+                continue
+
+        slot_tersedia.remove(nomor)
+        nomor_ada.append(nomor)
+
+        profil_add({
+            'netflix_id': nid,
+            'nomor': nomor,
+            'nama': item['nama'],
+            'pin': item.get('pin',''),
+            'expired': item.get('expired','')
+        })
+
+        expired_str = format_tgl(item['expired']) if item.get('expired') else 'Aktif'
+        berhasil.append(f"✅ *{nomor}. {item['nama']}* | {item.get('pin','-')} | {expired_str}")
+
+    teks = f"👥 *Hasil Bulk Profil Netflix*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    if berhasil:
+        teks += f"✅ *Berhasil ({len(berhasil)}):*\n" + '\n'.join(berhasil) + '\n\n'
+    if gagal:
+        teks += f"⚠️ *Gagal ({len(gagal)}):*\n" + '\n'.join(gagal) + '\n\n'
+    teks += "_Ketik /start untuk kembali ke menu._"
+
+    await update.message.reply_text(teks, parse_mode='Markdown')
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -151,11 +247,11 @@ def conv_edit_netflix():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_nf_mulai, pattern="^edit_nf_")],
         states={
-            EDIT_NF_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_nf_field)],
-            EDIT_NF_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_nf_val)],
+            EDIT_NF_F: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_nf_f)],
+            EDIT_NF_V: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_nf_v)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="edit_nf", persistent=False,
+        name="enf", persistent=False,
     )
 
 async def edit_nf_mulai(update, context):
@@ -164,28 +260,27 @@ async def edit_nf_mulai(update, context):
     n = nf_get(nid)
     context.user_data.clear()
     context.user_data['edit_id'] = nid
-    context.user_data['edit_type'] = 'netflix'
-    kb = ReplyKeyboardMarkup([["📧 Email","🔑 Password"],["📅 Ubah PW","📝 Catatan"]], one_time_keyboard=True, resize_keyboard=True)
+    kb = ReplyKeyboardMarkup([["📧 Email","🔑 Password"],["📅 Ubah PW","💳 Metode"],["📝 Catatan"]], one_time_keyboard=True, resize_keyboard=True)
     await update.callback_query.message.reply_text(
         f"✏️ *Edit Akun Netflix*\n📧 {n['email']}\n\nPilih yang mau diedit:",
         parse_mode='Markdown', reply_markup=kb
     )
-    return EDIT_NF_FIELD
+    return EDIT_NF_F
 
-FIELD_MAP_NF = {"📧 email": "email","🔑 password": "password","📅 ubah pw": "tgl_ubah_pw","📝 catatan": "catatan"}
+NF_MAP = {"📧 email":"email","🔑 password":"password","📅 ubah pw":"tgl_ubah_pw","💳 metode":"metode_bayar","📝 catatan":"catatan"}
 
-async def edit_nf_field(update, context):
-    field = update.message.text.strip().lower()
-    db_field = FIELD_MAP_NF.get(field)
-    if not db_field:
+async def edit_nf_f(update, context):
+    f = update.message.text.strip().lower()
+    db_f = NF_MAP.get(f)
+    if not db_f:
         await update.message.reply_text("❌ Pilih dari tombol.")
-        return EDIT_NF_FIELD
-    context.user_data['edit_field'] = db_field
-    await update.message.reply_text(f"Masukkan nilai baru untuk *{field}*:", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    return EDIT_NF_VAL
+        return EDIT_NF_F
+    context.user_data['ef'] = db_f
+    await update.message.reply_text(f"Masukkan nilai baru:", reply_markup=ReplyKeyboardRemove())
+    return EDIT_NF_V
 
-async def edit_nf_val(update, context):
-    nf_update(context.user_data['edit_id'], {context.user_data['edit_field']: update.message.text.strip()})
+async def edit_nf_v(update, context):
+    nf_update(context.user_data['edit_id'], {context.user_data['ef']: update.message.text.strip()})
     await update.message.reply_text("✅ Berhasil diupdate! Ketik /start untuk kembali.")
     context.user_data.clear()
     return ConversationHandler.END
@@ -196,11 +291,11 @@ def conv_edit_profil():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_pr_mulai, pattern="^edit_profil_")],
         states={
-            EDIT_PR_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pr_field)],
-            EDIT_PR_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pr_val)],
+            EDIT_PR_F: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pr_f)],
+            EDIT_PR_V: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pr_v)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="edit_profil", persistent=False,
+        name="epr", persistent=False,
     )
 
 async def edit_pr_mulai(update, context):
@@ -214,30 +309,31 @@ async def edit_pr_mulai(update, context):
         f"✏️ *Edit Profil {p['nomor']} — {p['nama']}*\n\nPilih yang mau diedit:",
         parse_mode='Markdown', reply_markup=kb
     )
-    return EDIT_PR_FIELD
+    return EDIT_PR_F
 
-FIELD_MAP_PR = {"👤 nama":"nama","📌 pin":"pin","⏰ expired":"expired"}
+PR_MAP = {"👤 nama":"nama","📌 pin":"pin","⏰ expired":"expired"}
 
-async def edit_pr_field(update, context):
-    field = update.message.text.strip().lower()
-    db_field = FIELD_MAP_PR.get(field)
-    if not db_field:
+async def edit_pr_f(update, context):
+    f = update.message.text.strip().lower()
+    db_f = PR_MAP.get(f)
+    if not db_f:
         await update.message.reply_text("❌ Pilih dari tombol.")
-        return EDIT_PR_FIELD
-    context.user_data['edit_field'] = db_field
-    await update.message.reply_text(f"Masukkan nilai baru:\n_(untuk expired gunakan DD-MM-YYYY)_", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    return EDIT_PR_VAL
+        return EDIT_PR_F
+    context.user_data['ef'] = db_f
+    hint = "\n_(contoh: 17 Mei 2026)_" if db_f == 'expired' else ""
+    await update.message.reply_text(f"Masukkan nilai baru:{hint}", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return EDIT_PR_V
 
-async def edit_pr_val(update, context):
+async def edit_pr_v(update, context):
     value = update.message.text.strip()
-    if context.user_data['edit_field'] == 'expired':
+    if context.user_data['ef'] == 'expired':
         tgl = validasi_tgl(value)
-        if not tgl:
-            await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-            return EDIT_PR_VAL
-        value = tgl
-    profil_update(context.user_data['edit_id'], {context.user_data['edit_field']: value})
-    await update.message.reply_text("✅ Profil berhasil diupdate! Ketik /start untuk kembali.")
+        if not tgl and value != '-':
+            await update.message.reply_text("❌ Format salah! Contoh: 17 Mei 2026")
+            return EDIT_PR_V
+        value = tgl or ''
+    profil_update(context.user_data['edit_id'], {context.user_data['ef']: value})
+    await update.message.reply_text("✅ Profil berhasil diupdate!")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -246,34 +342,32 @@ async def edit_pr_val(update, context):
 def conv_perp_netflix():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(perp_nf_mulai, pattern="^perp_nf_")],
-        states={PERP_NF_TGL: [MessageHandler(filters.TEXT & ~filters.COMMAND, perp_nf_tgl)]},
+        states={PERP_NF: [MessageHandler(filters.TEXT & ~filters.COMMAND, perp_nf_tgl)]},
         fallbacks=[CommandHandler("batal", batal)],
-        name="perp_nf", persistent=False,
+        name="pnf", persistent=False,
     )
 
 async def perp_nf_mulai(update, context):
     await update.callback_query.answer()
     nid = int(update.callback_query.data.split("_")[2])
     context.user_data.clear()
-    context.user_data['perp_id'] = nid
-    context.user_data['perp_type'] = 'netflix'
+    context.user_data['pid'] = nid
     await update.callback_query.message.reply_text(
-        "🔄 *Perpanjang Netflix*\n\nMasukkan *tanggal expired baru profil*:\n_(DD-MM-YYYY)_\n\n_Catatan: ini update expired untuk semua profil_",
+        "🔄 *Perpanjang Netflix*\n\nMasukkan *expired baru* untuk semua profil:\n_(contoh: 17 Mei 2026)_",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
-    return PERP_NF_TGL
+    return PERP_NF
 
 async def perp_nf_tgl(update, context):
     tgl = validasi_tgl(update.message.text.strip())
     if not tgl:
-        await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-        return PERP_NF_TGL
-    nid = context.user_data['perp_id']
-    from database import profil_all as pa, profil_update as pu
-    for p in pa(nid):
-        pu(p['id'], {'expired': tgl})
+        await update.message.reply_text("❌ Format salah! Contoh: 17 Mei 2026")
+        return PERP_NF
+    nid = context.user_data['pid']
+    for p in profil_all(nid):
+        profil_update(p['id'], {'expired': tgl})
     await update.message.reply_text(
-        f"✅ *Semua profil berhasil diperpanjang!*\n\n⏰ Expired baru: {format_tgl(tgl)}\n\nKetik /start untuk kembali.",
+        f"✅ *Semua profil berhasil diperpanjang!*\n\n⏰ Expired baru: {format_tgl(tgl)}",
         parse_mode='Markdown'
     )
     context.user_data.clear()
@@ -288,12 +382,11 @@ def conv_tambah_disney():
             DS_PAKET: [MessageHandler(filters.TEXT & ~filters.COMMAND, ds_paket)],
             DS_HP: [MessageHandler(filters.TEXT & ~filters.COMMAND, ds_hp)],
             DS_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ds_email)],
-            DS_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ds_pass)],
             DS_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, ds_expired)],
             DS_CATATAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, ds_catatan)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="tambah_ds", persistent=False,
+        name="tds", persistent=False,
     )
 
 async def ds_mulai(update, context):
@@ -301,45 +394,44 @@ async def ds_mulai(update, context):
     context.user_data.clear()
     kb = ReplyKeyboardMarkup([["DISNEY 1 BULAN SHARING"],["DISNEY 3 BULAN SHARING"]], one_time_keyboard=True, resize_keyboard=True)
     await update.callback_query.message.reply_text(
-        "🏰 *Tambah Akun Disney+*\n/batal untuk cancel\n\n*1/6* — Pilih *nama paket*:",
+        "🏰 *Tambah Akun Disney+*\n/batal untuk cancel\n\n*1/5* — Pilih *nama paket*:",
         parse_mode='Markdown', reply_markup=kb
     )
     return DS_PAKET
 
 async def ds_paket(update, context):
     context.user_data['nama_paket'] = update.message.text.strip()
-    await update.message.reply_text("*2/6* — *No HP* pemilik akun:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("*2/5* — *No HP* pemilik akun:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
     return DS_HP
 
 async def ds_hp(update, context):
     context.user_data['no_hp'] = update.message.text.strip()
-    await update.message.reply_text("*3/6* — *Email* akun Disney+:", parse_mode='Markdown')
+    await update.message.reply_text("*3/5* — *Email* akun Disney+:", parse_mode='Markdown')
     return DS_EMAIL
 
 async def ds_email(update, context):
     context.user_data['email'] = update.message.text.strip()
-    await update.message.reply_text("*4/6* — *Password* akun:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
-    return DS_PASS
-
-async def ds_pass(update, context):
-    context.user_data['password'] = update.message.text.strip()
-    await update.message.reply_text("*5/6* — *Expired langganan*:\n_(DD-MM-YYYY)_", parse_mode='Markdown')
+    await update.message.reply_text("*4/5* — *Expired langganan*:\n_(contoh: 24 Maret 2027)_", parse_mode='Markdown')
     return DS_EXPIRED
 
 async def ds_expired(update, context):
     tgl = validasi_tgl(update.message.text.strip())
     if not tgl:
-        await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
+        await update.message.reply_text("❌ Format salah! Contoh: 24 Maret 2027")
         return DS_EXPIRED
     context.user_data['expired_langganan'] = tgl
-    await update.message.reply_text("*6/6* — *Catatan*:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
+    await update.message.reply_text("*5/5* — *Catatan*:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
     return DS_CATATAN
 
 async def ds_catatan(update, context):
     context.user_data['catatan'] = update.message.text.strip()
     did = ds_add(context.user_data)
     await update.message.reply_text(
-        f"✅ *Akun Disney+ berhasil ditambahkan!*\n\n📧 {context.user_data['email']}\n⏰ {format_tgl(context.user_data['expired_langganan'])}\nID: #{did}\n\nSekarang tambahkan perangkat via /start → Disney+",
+        f"✅ *Akun Disney+ berhasil ditambahkan!*\n\n"
+        f"📧 {context.user_data['email']}\n"
+        f"⏰ {format_tgl(context.user_data['expired_langganan'])}\n"
+        f"🆔 ID: #{did}\n\n"
+        f"Tambahkan perangkat via /start → Disney+",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
     context.user_data.clear()
@@ -355,7 +447,7 @@ def conv_tambah_perangkat():
             PG_EXPIRED: [MessageHandler(filters.TEXT & ~filters.COMMAND, pg_expired)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="tambah_pg", persistent=False,
+        name="tpg", persistent=False,
     )
 
 async def pg_mulai(update, context):
@@ -371,21 +463,82 @@ async def pg_mulai(update, context):
 
 async def pg_nama(update, context):
     context.user_data['nama'] = update.message.text.strip()
-    await update.message.reply_text("*2/2* — *Tanggal expired* perangkat:\n_(DD-MM-YYYY atau '-')_", parse_mode='Markdown')
+    await update.message.reply_text("*2/2* — *Tanggal expired* perangkat:\n_(contoh: 9 Mei 2026, atau '-')_", parse_mode='Markdown')
     return PG_EXPIRED
 
 async def pg_expired(update, context):
-    tgl = update.message.text.strip()
-    if tgl != '-':
-        tgl_db = validasi_tgl(tgl)
-        context.user_data['expired'] = tgl_db or ''
-    else:
-        context.user_data['expired'] = ''
+    tgl_raw = update.message.text.strip()
+    tgl = validasi_tgl(tgl_raw) if tgl_raw != '-' else ''
+    context.user_data['expired'] = tgl or ''
     perangkat_add(context.user_data)
     await update.message.reply_text(
-        f"✅ *Perangkat {context.user_data['nama']} berhasil ditambahkan!*\n\nKetik /start untuk kembali.",
+        f"✅ *{context.user_data['nama']} berhasil ditambahkan!*\n\nKetik /start untuk kembali.",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+# ── BULK PERANGKAT ────────────────────────────────────────
+
+def conv_bulk_perangkat():
+    return ConversationHandler(
+        entry_points=[CallbackQueryHandler(bulk_pg_mulai, pattern="^bulk_perangkat_")],
+        states={BULK_PG: [MessageHandler(filters.TEXT & ~filters.COMMAND, bulk_pg_proses)]},
+        fallbacks=[CommandHandler("batal", batal)],
+        name="bpg", persistent=False,
+    )
+
+async def bulk_pg_mulai(update, context):
+    await update.callback_query.answer()
+    did = int(update.callback_query.data.split("_")[2])
+    context.user_data.clear()
+    context.user_data['bulk_did'] = did
+    d = ds_get(did)
+    pg_existing = perangkat_all(did)
+    slot_tersisa = 5 - len(pg_existing)
+
+    teks = (
+        f"📱 *Bulk Tambah Perangkat Disney+*\n"
+        f"📧 {d['email']}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Slot tersedia: *{slot_tersisa}*\n\n"
+        f"Kirim semua perangkat sekaligus:\n\n"
+        f"Format bebas — satu baris satu perangkat:\n\n"
+        f"`Oppo phone|9 mei 2026`\n"
+        f"`Infinix phone|10 mei 2026`\n"
+        f"`Chrome browser|18-05-2026`\n"
+        f"`Samsung TV|21 mei 2026`\n\n"
+        f"Tanggal format bebas: *17 Mei 2026* atau *17-05-2026*\n"
+        f"Tanggal bisa dikosongkan: `Oppo phone|`"
+    )
+    await update.callback_query.message.reply_text(teks, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return BULK_PG
+
+async def bulk_pg_proses(update, context):
+    did = context.user_data['bulk_did']
+    pg_existing = perangkat_all(did)
+    slot_tersisa = 5 - len(pg_existing)
+
+    hasil = parse_bulk_perangkat(update.message.text)
+    berhasil = []
+    gagal = []
+
+    for item in hasil:
+        if len(berhasil) >= slot_tersisa:
+            gagal.append(f"⚠️ {item['nama']} → Slot penuh (maks 5)")
+            continue
+        perangkat_add({'disney_id': did, 'nama': item['nama'], 'expired': item.get('expired','')})
+        expired_str = format_tgl(item['expired']) if item.get('expired') else '-'
+        berhasil.append(f"✅ *{item['nama']}* | ⏰ {expired_str}")
+
+    teks = f"📱 *Hasil Bulk Perangkat Disney+*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    if berhasil:
+        teks += f"✅ *Berhasil ({len(berhasil)}):*\n" + '\n'.join(berhasil) + '\n\n'
+    if gagal:
+        teks += f"⚠️ *Gagal ({len(gagal)}):*\n" + '\n'.join(gagal) + '\n\n'
+    teks += "_Ketik /start untuk kembali ke menu._"
+
+    await update.message.reply_text(teks, parse_mode='Markdown')
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -395,11 +548,11 @@ def conv_edit_disney():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_ds_mulai, pattern="^edit_ds_")],
         states={
-            EDIT_DS_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_ds_field)],
-            EDIT_DS_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_ds_val)],
+            EDIT_DS_F: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_ds_f)],
+            EDIT_DS_V: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_ds_v)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="edit_ds", persistent=False,
+        name="eds", persistent=False,
     )
 
 async def edit_ds_mulai(update, context):
@@ -408,35 +561,36 @@ async def edit_ds_mulai(update, context):
     d = ds_get(did)
     context.user_data.clear()
     context.user_data['edit_id'] = did
-    kb = ReplyKeyboardMarkup([["📱 HP","📧 Email"],["🔑 Password","⏰ Expired"],["📦 Paket","📝 Catatan"]], one_time_keyboard=True, resize_keyboard=True)
+    kb = ReplyKeyboardMarkup([["📱 HP","📧 Email"],["⏰ Expired","📦 Paket"],["📝 Catatan"]], one_time_keyboard=True, resize_keyboard=True)
     await update.callback_query.message.reply_text(
-        f"✏️ *Edit Akun Disney+*\n📧 {d['email']}\n\nPilih yang mau diedit:",
+        f"✏️ *Edit Disney+*\n📧 {d['email']}\n\nPilih yang mau diedit:",
         parse_mode='Markdown', reply_markup=kb
     )
-    return EDIT_DS_FIELD
+    return EDIT_DS_F
 
-FIELD_MAP_DS = {"📱 hp":"no_hp","📧 email":"email","🔑 password":"password","⏰ expired":"expired_langganan","📦 paket":"nama_paket","📝 catatan":"catatan"}
+DS_MAP = {"📱 hp":"no_hp","📧 email":"email","⏰ expired":"expired_langganan","📦 paket":"nama_paket","📝 catatan":"catatan"}
 
-async def edit_ds_field(update, context):
-    field = update.message.text.strip().lower()
-    db_field = FIELD_MAP_DS.get(field)
-    if not db_field:
+async def edit_ds_f(update, context):
+    f = update.message.text.strip().lower()
+    db_f = DS_MAP.get(f)
+    if not db_f:
         await update.message.reply_text("❌ Pilih dari tombol.")
-        return EDIT_DS_FIELD
-    context.user_data['edit_field'] = db_field
-    await update.message.reply_text(f"Masukkan nilai baru:", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    return EDIT_DS_VAL
+        return EDIT_DS_F
+    context.user_data['ef'] = db_f
+    hint = "\n_(contoh: 24 Maret 2027)_" if db_f == 'expired_langganan' else ""
+    await update.message.reply_text(f"Masukkan nilai baru:{hint}", parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+    return EDIT_DS_V
 
-async def edit_ds_val(update, context):
+async def edit_ds_v(update, context):
     value = update.message.text.strip()
-    if context.user_data['edit_field'] == 'expired_langganan':
+    if context.user_data['ef'] == 'expired_langganan':
         tgl = validasi_tgl(value)
         if not tgl:
-            await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-            return EDIT_DS_VAL
+            await update.message.reply_text("❌ Format salah! Contoh: 24 Maret 2027")
+            return EDIT_DS_V
         value = tgl
-    ds_update(context.user_data['edit_id'], {context.user_data['edit_field']: value})
-    await update.message.reply_text("✅ Berhasil diupdate! Ketik /start untuk kembali.")
+    ds_update(context.user_data['edit_id'], {context.user_data['ef']: value})
+    await update.message.reply_text("✅ Berhasil diupdate!")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -446,11 +600,11 @@ def conv_edit_perangkat():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_pg_mulai, pattern="^edit_perangkat_")],
         states={
-            EDIT_PG_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pg_field)],
-            EDIT_PG_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pg_val)],
+            EDIT_PG_F: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pg_f)],
+            EDIT_PG_V: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_pg_v)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="edit_pg", persistent=False,
+        name="epg", persistent=False,
     )
 
 async def edit_pg_mulai(update, context):
@@ -464,30 +618,30 @@ async def edit_pg_mulai(update, context):
         f"✏️ *Edit Perangkat — {p['nama']}*\n\nPilih yang mau diedit:",
         parse_mode='Markdown', reply_markup=kb
     )
-    return EDIT_PG_FIELD
+    return EDIT_PG_F
 
-FIELD_MAP_PG = {"📱 nama":"nama","⏰ expired":"expired"}
+PG_MAP = {"📱 nama":"nama","⏰ expired":"expired"}
 
-async def edit_pg_field(update, context):
-    field = update.message.text.strip().lower()
-    db_field = FIELD_MAP_PG.get(field)
-    if not db_field:
+async def edit_pg_f(update, context):
+    f = update.message.text.strip().lower()
+    db_f = PG_MAP.get(f)
+    if not db_f:
         await update.message.reply_text("❌ Pilih dari tombol.")
-        return EDIT_PG_FIELD
-    context.user_data['edit_field'] = db_field
+        return EDIT_PG_F
+    context.user_data['ef'] = db_f
     await update.message.reply_text("Masukkan nilai baru:", reply_markup=ReplyKeyboardRemove())
-    return EDIT_PG_VAL
+    return EDIT_PG_V
 
-async def edit_pg_val(update, context):
+async def edit_pg_v(update, context):
     value = update.message.text.strip()
-    if context.user_data['edit_field'] == 'expired':
+    if context.user_data['ef'] == 'expired':
         tgl = validasi_tgl(value)
-        if not tgl:
-            await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-            return EDIT_PG_VAL
-        value = tgl
-    perangkat_update(context.user_data['edit_id'], {context.user_data['edit_field']: value})
-    await update.message.reply_text("✅ Perangkat berhasil diupdate! Ketik /start untuk kembali.")
+        if not tgl and value != '-':
+            await update.message.reply_text("❌ Format salah! Contoh: 9 Mei 2026")
+            return EDIT_PG_V
+        value = tgl or ''
+    perangkat_update(context.user_data['edit_id'], {context.user_data['ef']: value})
+    await update.message.reply_text("✅ Perangkat berhasil diupdate!")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -496,9 +650,9 @@ async def edit_pg_val(update, context):
 def conv_perp_disney():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(perp_ds_mulai, pattern="^perp_ds_")],
-        states={PERP_DS_TGL: [MessageHandler(filters.TEXT & ~filters.COMMAND, perp_ds_tgl)]},
+        states={PERP_DS: [MessageHandler(filters.TEXT & ~filters.COMMAND, perp_ds_tgl)]},
         fallbacks=[CommandHandler("batal", batal)],
-        name="perp_ds", persistent=False,
+        name="pds", persistent=False,
     )
 
 async def perp_ds_mulai(update, context):
@@ -506,23 +660,20 @@ async def perp_ds_mulai(update, context):
     did = int(update.callback_query.data.split("_")[2])
     d = ds_get(did)
     context.user_data.clear()
-    context.user_data['perp_id'] = did
+    context.user_data['pid'] = did
     await update.callback_query.message.reply_text(
-        f"🔄 *Perpanjang Disney+*\n📧 {d['email']}\nExpired sekarang: {format_tgl(d['expired_langganan'])}\n\nMasukkan *expired baru*:\n_(DD-MM-YYYY)_",
+        f"🔄 *Perpanjang Disney+*\n📧 {d['email']}\nExpired sekarang: {format_tgl(d['expired_langganan'])}\n\nMasukkan *expired baru*:\n_(contoh: 24 Maret 2028)_",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
-    return PERP_DS_TGL
+    return PERP_DS
 
 async def perp_ds_tgl(update, context):
     tgl = validasi_tgl(update.message.text.strip())
     if not tgl:
-        await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-        return PERP_DS_TGL
-    ds_update(context.user_data['perp_id'], {'expired_langganan': tgl})
-    await update.message.reply_text(
-        f"✅ *Disney+ berhasil diperpanjang!*\n\n⏰ Expired baru: {format_tgl(tgl)}\n\nKetik /start untuk kembali.",
-        parse_mode='Markdown'
-    )
+        await update.message.reply_text("❌ Format salah! Contoh: 24 Maret 2028")
+        return PERP_DS
+    ds_update(context.user_data['pid'], {'expired_langganan': tgl})
+    await update.message.reply_text(f"✅ *Disney+ berhasil diperpanjang!*\n\n⏰ Expired baru: {format_tgl(tgl)}", parse_mode='Markdown')
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -538,7 +689,7 @@ def conv_tambah_youtube():
             YT_CATATAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, yt_catatan)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="tambah_yt", persistent=False,
+        name="tyt", persistent=False,
     )
 
 async def yt_mulai(update, context):
@@ -557,13 +708,13 @@ async def yt_email(update, context):
 
 async def yt_pass(update, context):
     context.user_data['password'] = update.message.text.strip()
-    await update.message.reply_text("*3/4* — *Expired langganan*:\n_(DD-MM-YYYY)_", parse_mode='Markdown')
+    await update.message.reply_text("*3/4* — *Expired langganan*:\n_(contoh: 3 Mei 2026)_", parse_mode='Markdown')
     return YT_EXPIRED
 
 async def yt_expired(update, context):
     tgl = validasi_tgl(update.message.text.strip())
     if not tgl:
-        await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
+        await update.message.reply_text("❌ Format salah! Contoh: 3 Mei 2026")
         return YT_EXPIRED
     context.user_data['expired'] = tgl
     await update.message.reply_text("*4/4* — *Catatan*:\n_(ketik '-' jika tidak ada)_", parse_mode='Markdown')
@@ -573,23 +724,21 @@ async def yt_catatan(update, context):
     context.user_data['catatan'] = update.message.text.strip()
     yid = yt_add(context.user_data)
     await update.message.reply_text(
-        f"✅ *Akun YouTube berhasil ditambahkan!*\n\n📧 {context.user_data['email']}\n⏰ {format_tgl(context.user_data['expired'])}\nID: #{yid}\n\nKetik /start untuk kembali.",
+        f"✅ *Akun YouTube berhasil ditambahkan!*\n\n📧 {context.user_data['email']}\n⏰ {format_tgl(context.user_data['expired'])}\n🆔 ID: #{yid}",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
     context.user_data.clear()
     return ConversationHandler.END
 
-# ── EDIT YOUTUBE ──────────────────────────────────────────
-
 def conv_edit_youtube():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_yt_mulai, pattern="^edit_yt_")],
         states={
-            EDIT_YT_FIELD: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_yt_field)],
-            EDIT_YT_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_yt_val)],
+            EDIT_YT_F: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_yt_f)],
+            EDIT_YT_V: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_yt_v)],
         },
         fallbacks=[CommandHandler("batal", batal)],
-        name="edit_yt", persistent=False,
+        name="eyt", persistent=False,
     )
 
 async def edit_yt_mulai(update, context):
@@ -603,41 +752,39 @@ async def edit_yt_mulai(update, context):
         f"✏️ *Edit YouTube*\n📧 {y['email']}\n\nPilih yang mau diedit:",
         parse_mode='Markdown', reply_markup=kb
     )
-    return EDIT_YT_FIELD
+    return EDIT_YT_F
 
-FIELD_MAP_YT = {"📧 email":"email","🔑 password":"password","⏰ expired":"expired","📝 catatan":"catatan"}
+YT_MAP = {"📧 email":"email","🔑 password":"password","⏰ expired":"expired","📝 catatan":"catatan"}
 
-async def edit_yt_field(update, context):
-    field = update.message.text.strip().lower()
-    db_field = FIELD_MAP_YT.get(field)
-    if not db_field:
+async def edit_yt_f(update, context):
+    f = update.message.text.strip().lower()
+    db_f = YT_MAP.get(f)
+    if not db_f:
         await update.message.reply_text("❌ Pilih dari tombol.")
-        return EDIT_YT_FIELD
-    context.user_data['edit_field'] = db_field
+        return EDIT_YT_F
+    context.user_data['ef'] = db_f
     await update.message.reply_text("Masukkan nilai baru:", reply_markup=ReplyKeyboardRemove())
-    return EDIT_YT_VAL
+    return EDIT_YT_V
 
-async def edit_yt_val(update, context):
+async def edit_yt_v(update, context):
     value = update.message.text.strip()
-    if context.user_data['edit_field'] == 'expired':
+    if context.user_data['ef'] == 'expired':
         tgl = validasi_tgl(value)
         if not tgl:
-            await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-            return EDIT_YT_VAL
+            await update.message.reply_text("❌ Format salah! Contoh: 3 Mei 2026")
+            return EDIT_YT_V
         value = tgl
-    yt_update(context.user_data['edit_id'], {context.user_data['edit_field']: value})
-    await update.message.reply_text("✅ Berhasil diupdate! Ketik /start untuk kembali.")
+    yt_update(context.user_data['edit_id'], {context.user_data['ef']: value})
+    await update.message.reply_text("✅ Berhasil diupdate!")
     context.user_data.clear()
     return ConversationHandler.END
-
-# ── PERPANJANG YOUTUBE ────────────────────────────────────
 
 def conv_perp_youtube():
     return ConversationHandler(
         entry_points=[CallbackQueryHandler(perp_yt_mulai, pattern="^perp_yt_")],
-        states={PERP_YT_TGL: [MessageHandler(filters.TEXT & ~filters.COMMAND, perp_yt_tgl)]},
+        states={PERP_YT: [MessageHandler(filters.TEXT & ~filters.COMMAND, perp_yt_tgl)]},
         fallbacks=[CommandHandler("batal", batal)],
-        name="perp_yt", persistent=False,
+        name="pyt", persistent=False,
     )
 
 async def perp_yt_mulai(update, context):
@@ -645,23 +792,20 @@ async def perp_yt_mulai(update, context):
     yid = int(update.callback_query.data.split("_")[2])
     y = yt_get(yid)
     context.user_data.clear()
-    context.user_data['perp_id'] = yid
+    context.user_data['pid'] = yid
     await update.callback_query.message.reply_text(
-        f"🔄 *Perpanjang YouTube*\n📧 {y['email']}\nExpired sekarang: {format_tgl(y['expired'])}\n\nMasukkan *expired baru*:\n_(DD-MM-YYYY)_",
+        f"🔄 *Perpanjang YouTube*\n📧 {y['email']}\nExpired sekarang: {format_tgl(y['expired'])}\n\nMasukkan *expired baru*:\n_(contoh: 3 Mei 2027)_",
         parse_mode='Markdown', reply_markup=ReplyKeyboardRemove()
     )
-    return PERP_YT_TGL
+    return PERP_YT
 
 async def perp_yt_tgl(update, context):
     tgl = validasi_tgl(update.message.text.strip())
     if not tgl:
-        await update.message.reply_text("❌ Format salah! DD-MM-YYYY")
-        return PERP_YT_TGL
-    yt_update(context.user_data['perp_id'], {'expired': tgl})
-    await update.message.reply_text(
-        f"✅ *YouTube berhasil diperpanjang!*\n\n⏰ Expired baru: {format_tgl(tgl)}\n\nKetik /start untuk kembali.",
-        parse_mode='Markdown'
-    )
+        await update.message.reply_text("❌ Format salah! Contoh: 3 Mei 2027")
+        return PERP_YT
+    yt_update(context.user_data['pid'], {'expired': tgl})
+    await update.message.reply_text(f"✅ *YouTube berhasil diperpanjang!*\n\n⏰ Expired baru: {format_tgl(tgl)}", parse_mode='Markdown')
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -676,276 +820,44 @@ def conv_cari():
     )
 
 async def cari_mulai(update, context):
-    await update.message.reply_text("🔍 Masukkan keyword pencarian:\n_(nama, email, HP, atau nama perangkat)_", parse_mode='Markdown')
+    await update.message.reply_text("🔍 *Cari Akun*\n\nMasukkan keyword:\n_(nama, email, HP, atau nama perangkat)_", parse_mode='Markdown')
     return CARI_INPUT
 
 async def cari_proses(update, context):
-    keyword = update.message.text.strip().lower()
-    hasil = []
+    kw = update.message.text.strip().lower()
+    teks = f"🔍 *Hasil Cari: '{kw}'*\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    kb = []
+    ada = False
 
     for n in nf_all():
-        if keyword in n['email'].lower() or keyword in (n['password'] or '').lower():
-            hasil.append(('netflix', n))
+        if kw in n['email'].lower():
+            ada = True
+            teks += f"🎬 `{n['email']}`\n"
+            kb.append([InlineKeyboardButton(f"🎬 {n['email']}", callback_data=f"nf_detail_{n['id']}")])
         for p in profil_all(n['id']):
-            if keyword in p['nama'].lower():
-                hasil.append(('profil', p, n))
+            if kw in p['nama'].lower():
+                ada = True
+                teks += f"👤 *{p['nama']}* (Profil {p['nomor']}) — {n['email']}\n"
 
     for d in ds_all():
-        if keyword in d['email'].lower() or keyword in (d['no_hp'] or '').lower():
-            hasil.append(('disney', d))
+        if kw in d['email'].lower() or kw in (d['no_hp'] or '').lower():
+            ada = True
+            teks += f"🏰 `{d['email']}`\n"
+            kb.append([InlineKeyboardButton(f"🏰 {d['email']}", callback_data=f"ds_detail_{d['id']}")])
         for p in perangkat_all(d['id']):
-            if keyword in p['nama'].lower():
-                hasil.append(('perangkat', p, d))
+            if kw in p['nama'].lower():
+                ada = True
+                teks += f"📱 *{p['nama']}* — {d['email']}\n"
 
     for y in yt_all():
-        if keyword in y['email'].lower():
-            hasil.append(('youtube', y))
-
-    if not hasil:
-        await update.message.reply_text(f"❌ Tidak ditemukan hasil untuk *{keyword}*", parse_mode='Markdown')
-        return ConversationHandler.END
-
-    teks = f"🔍 *Hasil Cari: '{keyword}'*\n━━━━━━━━━━━━━━━━━━━━\n\n"
-    kb = []
-
-    for item in hasil:
-        if item[0] == 'netflix':
-            n = item[1]
-            teks += f"🎬 *Netflix* — {n['email']}\n"
-            kb.append([InlineKeyboardButton(f"🎬 {n['email']}", callback_data=f"nf_detail_{n['id']}")])
-        elif item[0] == 'profil':
-            p, n = item[1], item[2]
-            from utils import sisa_hari as sh, status_icon as si
-            sisa = sh(p['expired']) if p['expired'] else 999
-            teks += f"👤 *Profil {p['nama']}* — {n['email']}\n"
-        elif item[0] == 'disney':
-            d = item[1]
-            teks += f"🏰 *Disney+* — {d['email']}\n"
-            kb.append([InlineKeyboardButton(f"🏰 {d['email']}", callback_data=f"ds_detail_{d['id']}")])
-        elif item[0] == 'perangkat':
-            p, d = item[1], item[2]
-            teks += f"📱 *{p['nama']}* (Disney) — {d['email']}\n"
-        elif item[0] == 'youtube':
-            y = item[1]
-            teks += f"📺 *YouTube* — {y['email']}\n"
+        if kw in y['email'].lower():
+            ada = True
+            teks += f"📺 `{y['email']}`\n"
             kb.append([InlineKeyboardButton(f"📺 {y['email']}", callback_data=f"yt_detail_{y['id']}")])
+
+    if not ada:
+        teks += "❌ Tidak ada hasil yang ditemukan."
 
     kb.append([InlineKeyboardButton("« Menu Utama", callback_data="start_menu")])
     await update.message.reply_text(teks, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
-    return ConversationHandler.END
-
-
-# ══ BULK PERANGKAT DISNEY ══════════════════════════════════
-
-BULK_PG_INPUT = 70
-
-def conv_bulk_perangkat():
-    return ConversationHandler(
-        entry_points=[CallbackQueryHandler(bulk_pg_mulai, pattern="^bulk_perangkat_")],
-        states={BULK_PG_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, bulk_pg_proses)]},
-        fallbacks=[CommandHandler("batal", batal)],
-        name="bulk_pg", persistent=False,
-    )
-
-async def bulk_pg_mulai(update, context):
-    await update.callback_query.answer()
-    did = int(update.callback_query.data.split("_")[2])
-    context.user_data.clear()
-    context.user_data['bulk_did'] = did
-    d = ds_get(did)
-
-    contoh = (
-        "📱 *Bulk Tambah Perangkat Disney+*\n"
-        f"📧 {d['email']}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Kirim semua perangkat sekaligus dengan format:\n\n"
-        "`NamaPerangkat|DD-MM-YYYY`\n\n"
-        "Contoh:\n"
-        "`Oppo phone|09-05-2026`\n"
-        "`Infinix phone|10-05-2026`\n"
-        "`Chrome browser|18-05-2026`\n"
-        "`Techno phone|18-05-2026`\n"
-        "`Samsung TV|21-05-2026`\n\n"
-        "⚠️ Satu baris = satu perangkat\n"
-        "Tanggal bisa dikosongkan: `Oppo phone|`"
-    )
-    await update.callback_query.message.reply_text(contoh, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    return BULK_PG_INPUT
-
-async def bulk_pg_proses(update, context):
-    did = context.user_data['bulk_did']
-    text = update.message.text.strip()
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
-
-    berhasil = []
-    gagal = []
-
-    # Cek slot tersisa
-    pg_existing = perangkat_all(did)
-    slot_tersisa = 5 - len(pg_existing)
-
-    if slot_tersisa <= 0:
-        await update.message.reply_text("❌ Slot perangkat sudah penuh! Maksimal 5 perangkat.")
-        return ConversationHandler.END
-
-    for i, line in enumerate(lines):
-        if len(berhasil) >= slot_tersisa:
-            gagal.append(f"⚠️ {line} → Slot penuh (maks 5)")
-            continue
-
-        parts = line.split('|')
-        nama = parts[0].strip() if parts else ''
-
-        if not nama:
-            gagal.append(f"❌ Baris {i+1} → Nama kosong")
-            continue
-
-        tgl = ''
-        if len(parts) > 1 and parts[1].strip():
-            tgl_db = validasi_tgl(parts[1].strip())
-            if tgl_db:
-                tgl = tgl_db
-            else:
-                gagal.append(f"⚠️ {nama} → Format tanggal salah, disimpan tanpa tanggal")
-
-        perangkat_add({'disney_id': did, 'nama': nama, 'expired': tgl})
-        berhasil.append(f"✅ {nama}" + (f" | {format_tgl(tgl)}" if tgl else ""))
-
-    teks = f"📱 *Hasil Bulk Tambah Perangkat*\n━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    if berhasil:
-        teks += f"✅ *Berhasil ({len(berhasil)}):**\n"
-        teks += '\n'.join(berhasil) + '\n\n'
-
-    if gagal:
-        teks += f"⚠️ *Gagal/Peringatan ({len(gagal)}):**\n"
-        teks += '\n'.join(gagal) + '\n\n'
-
-    teks += f"Ketik /start untuk kembali ke menu."
-
-    await update.message.reply_text(teks, parse_mode='Markdown')
-    context.user_data.clear()
-    return ConversationHandler.END
-
-
-# ══ BULK PROFIL NETFLIX ════════════════════════════════════
-
-BULK_PR_INPUT = 71
-
-def conv_bulk_profil():
-    return ConversationHandler(
-        entry_points=[CallbackQueryHandler(bulk_pr_mulai, pattern="^bulk_profil_")],
-        states={BULK_PR_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, bulk_pr_proses)]},
-        fallbacks=[CommandHandler("batal", batal)],
-        name="bulk_profil", persistent=False,
-    )
-
-async def bulk_pr_mulai(update, context):
-    await update.callback_query.answer()
-    nid = int(update.callback_query.data.split("_")[2])
-    context.user_data.clear()
-    context.user_data['bulk_nid'] = nid
-    n = nf_get(nid)
-
-    profil = profil_all(nid)
-    nomor_ada = [p['nomor'] for p in profil]
-    nomor_tersedia = [str(i) for i in range(1,6) if i not in nomor_ada]
-
-    contoh = (
-        "👥 *Bulk Tambah Profil Netflix*\n"
-        f"📧 {n['email']}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Slot tersedia: *{', '.join(nomor_tersedia)}*\n\n"
-        "Format:\n"
-        "`NoProfil|NamaProfil|PIN|DD-MM-YYYY`\n\n"
-        "Contoh:\n"
-        "`1|Dyah|1111|25-04-2026`\n"
-        "`2|Saulo|2025|`\n"
-        "`3|David|2222|expired`\n"
-        "`4|Gio|1244|`\n"
-        "`5|Keys|0000|25-04-2026`\n\n"
-        "⚠️ PIN dan tanggal bisa dikosongkan\n"
-        "Tulis 'expired' jika sudah expired\n"
-        "Satu baris = satu profil"
-    )
-    await update.callback_query.message.reply_text(contoh, parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
-    return BULK_PR_INPUT
-
-async def bulk_pr_proses(update, context):
-    nid = context.user_data['bulk_nid']
-    text = update.message.text.strip()
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
-
-    berhasil = []
-    gagal = []
-
-    profil_existing = profil_all(nid)
-    nomor_ada = [p['nomor'] for p in profil_existing]
-
-    for i, line in enumerate(lines):
-        parts = line.split('|')
-
-        if len(parts) < 2:
-            gagal.append(f"❌ Baris {i+1} → Format salah")
-            continue
-
-        try:
-            nomor = int(parts[0].strip())
-        except:
-            gagal.append(f"❌ Baris {i+1} → Nomor profil tidak valid")
-            continue
-
-        if nomor < 1 or nomor > 5:
-            gagal.append(f"❌ Profil {nomor} → Harus antara 1-5")
-            continue
-
-        if nomor in nomor_ada:
-            gagal.append(f"⚠️ Profil {nomor} → Sudah ada, skip")
-            continue
-
-        nama = parts[1].strip() if len(parts) > 1 else ''
-        if not nama:
-            gagal.append(f"❌ Baris {i+1} → Nama kosong")
-            continue
-
-        pin = parts[2].strip() if len(parts) > 2 else ''
-        tgl_raw = parts[3].strip() if len(parts) > 3 else ''
-
-        tgl = ''
-        if tgl_raw.lower() == 'expired':
-            from datetime import date, timedelta
-            tgl = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-        elif tgl_raw:
-            tgl_db = validasi_tgl(tgl_raw)
-            if tgl_db:
-                tgl = tgl_db
-            else:
-                gagal.append(f"⚠️ Profil {nomor} {nama} → Format tanggal salah, disimpan tanpa tanggal")
-
-        profil_add({
-            'netflix_id': nid,
-            'nomor': nomor,
-            'nama': nama,
-            'pin': pin,
-            'expired': tgl
-        })
-        nomor_ada.append(nomor)
-
-        expired_str = format_tgl(tgl) if tgl else 'Aktif'
-        berhasil.append(f"✅ Profil {nomor} — {nama} | PIN: {pin or '-'} | {expired_str}")
-
-    teks = f"👥 *Hasil Bulk Tambah Profil*\n━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    if berhasil:
-        teks += f"✅ *Berhasil ({len(berhasil)}):**\n"
-        teks += '\n'.join(berhasil) + '\n\n'
-
-    if gagal:
-        teks += f"⚠️ *Gagal/Peringatan ({len(gagal)}):**\n"
-        teks += '\n'.join(gagal) + '\n\n'
-
-    teks += "Ketik /start untuk kembali ke menu."
-
-    await update.message.reply_text(teks, parse_mode='Markdown')
-    context.user_data.clear()
     return ConversationHandler.END

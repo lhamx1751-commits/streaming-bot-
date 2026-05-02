@@ -8,18 +8,12 @@ async def disney_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
-    if data == "menu_disney":
-        await list_disney(update, "aktif")
-    elif data == "ds_list_aktif":
-        await list_disney(update, "aktif")
-    elif data == "ds_list_expired":
-        await list_disney(update, "expired")
-    elif data == "ds_list_semua":
-        await list_disney(update, None)
-    elif data.startswith("ds_detail_"):
-        await detail_disney(update, int(data[10:]))
-    elif data.startswith("ds_perangkat_"):
-        await kelola_perangkat(update, int(data[13:]))
+    if data == "menu_disney": await list_disney(update, "aktif")
+    elif data == "ds_list_aktif": await list_disney(update, "aktif")
+    elif data == "ds_list_expired": await list_disney(update, "expired")
+    elif data == "ds_list_semua": await list_disney(update, None)
+    elif data.startswith("ds_detail_"): await detail_disney(update, int(data[10:]))
+    elif data.startswith("ds_perangkat_"): await kelola_perangkat(update, int(data[13:]))
     elif data.startswith("ds_hapus_konfirm_"):
         did = int(data[17:])
         d = ds_get(did)
@@ -44,10 +38,7 @@ async def disney_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("✅ Ya, Hapus", callback_data=f"ds_hapus_perangkat_{rid}"),
             InlineKeyboardButton("❌ Batal", callback_data=f"ds_perangkat_{p['disney_id']}"),
         ]]
-        await query.edit_message_text(
-            f"⚠️ *Yakin hapus perangkat ini?*\n\n📱 {p['nama']}",
-            parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb)
-        )
+        await query.edit_message_text(f"⚠️ *Yakin hapus perangkat {p['nama']}?*", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
     elif data.startswith("ds_hapus_perangkat_"):
         rid = int(data[19:])
         p = perangkat_get(rid)
@@ -64,13 +55,13 @@ async def list_disney(update, status):
     kb = []
 
     if not list_d:
-        teks += "❌ Tidak ada akun."
+        teks += "❌ Belum ada akun Disney+."
     else:
         for d in list_d:
             sisa = sisa_hari(d['expired_langganan'])
             icon = status_icon(sisa)
             pg = perangkat_all(d['id'])
-            teks += f"{icon} `{d['email']}` — {len(pg)} perangkat ({sisa}hr)\n"
+            teks += f"{icon} `{d['email']}`\n   📱 {len(pg)} perangkat · ⏰ {sisa} hari\n\n"
             kb.append([InlineKeyboardButton(f"🏰 {d['email']}", callback_data=f"ds_detail_{d['id']}")])
 
     kb.append([
@@ -79,7 +70,7 @@ async def list_disney(update, status):
         InlineKeyboardButton("📋 Semua", callback_data="ds_list_semua"),
     ])
     kb.append([
-        InlineKeyboardButton("➕ Tambah", callback_data="tambah_disney"),
+        InlineKeyboardButton("➕ Tambah Akun", callback_data="tambah_disney"),
         InlineKeyboardButton("« Menu", callback_data="start_menu"),
     ])
     await query.edit_message_text(teks, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
@@ -98,31 +89,30 @@ async def detail_disney(update, did):
     teks = (
         f"🏰 *Detail Akun Disney+*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 *Paket    :* {d['nama_paket']}\n"
-        f"📱 *No HP    :* {d['no_hp'] or '-'}\n"
-        f"📧 *Email    :* `{d['email']}`\n"
-        f"🔑 *Password :* `{d['password'] or '-'}`\n"
-        f"⏰ *Expired  :* {format_tgl(d['expired_langganan'])}\n"
-        f"{icon} *Sisa     :* {sisa} hari\n"
-        f"📝 *Catatan  :* {d['catatan'] or '-'}\n"
+        f"📦 *Paket      :* {d['nama_paket']}\n"
+        f"📱 *No HP      :* {d['no_hp'] or '-'}\n"
+        f"📧 *Email      :* `{d['email']}`\n"
+        f"⏰ *Expired    :* {format_tgl(d['expired_langganan'])}\n"
+        f"{icon} *Sisa       :* {sisa} hari\n"
+        f"📝 *Catatan    :* {d['catatan'] or '-'}\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📱 *Perangkat ({len(pg_list)}/5):*\n\n"
     )
 
     for i, p in enumerate(pg_list, 1):
-        sisa_p = sisa_hari(p['expired']) if p['expired'] else 999
+        sisa_p = sisa_hari(p.get('expired',''))
         icon_p = status_icon(sisa_p)
-        teks += f"{icon_p} *{i}. {p['nama']}*\n"
-        teks += f"   ⏰ {format_tgl(p['expired']) if p['expired'] else '-'} ({sisa_p}hr)\n\n"
+        expired_str = f"{format_tgl(p['expired'])} *({sisa_p} hr)*" if p.get('expired') else '-'
+        teks += f"{icon_p} *{i}. {p['nama']}*\n   ⏰ {expired_str}\n\n"
 
     kb = [
         [InlineKeyboardButton("📱 Kelola Perangkat", callback_data=f"ds_perangkat_{did}")],
         [
-            InlineKeyboardButton("✏️ Edit Akun", callback_data=f"edit_ds_{did}"),
+            InlineKeyboardButton("✏️ Edit", callback_data=f"edit_ds_{did}"),
             InlineKeyboardButton("🔄 Perpanjang", callback_data=f"perp_ds_{did}"),
         ],
         [
-            InlineKeyboardButton("🗑️ Hapus", callback_data=f"ds_hapus_konfirm_{did}"),
+            InlineKeyboardButton("🗑️ Hapus Akun", callback_data=f"ds_hapus_konfirm_{did}"),
             InlineKeyboardButton("« Kembali", callback_data="menu_disney"),
         ],
     ]
@@ -141,16 +131,21 @@ async def kelola_perangkat(update, did):
 
     kb = []
     for p in pg_list:
-        sisa = sisa_hari(p['expired']) if p['expired'] else 999
+        sisa = sisa_hari(p.get('expired',''))
         icon = status_icon(sisa)
-        teks += f"{icon} *{p['nama']}* | {format_tgl(p['expired']) if p['expired'] else '-'}\n"
+        expired_str = f"{format_tgl(p['expired'])} ({sisa}hr)" if p.get('expired') else '-'
+        teks += f"{icon} *{p['nama']}*\n   ⏰ {expired_str}\n\n"
         kb.append([
             InlineKeyboardButton(f"✏️ Edit {p['nama']}", callback_data=f"edit_perangkat_{p['id']}"),
             InlineKeyboardButton("🗑️ Hapus", callback_data=f"ds_hapus_perangkat_konfirm_{p['id']}"),
         ])
 
-    if len(pg_list) < 5:
-        kb.append([InlineKeyboardButton("➕ Tambah 1", callback_data=f"tambah_perangkat_{did}"), InlineKeyboardButton("📋 Bulk Tambah", callback_data=f"bulk_perangkat_{did}")])
+    slot_tersisa = 5 - len(pg_list)
+    if slot_tersisa > 0:
+        kb.append([
+            InlineKeyboardButton("➕ Tambah 1", callback_data=f"tambah_perangkat_{did}"),
+            InlineKeyboardButton("📋 Bulk Tambah", callback_data=f"bulk_perangkat_{did}"),
+        ])
     kb.append([InlineKeyboardButton("« Kembali", callback_data=f"ds_detail_{did}")])
 
     await query.edit_message_text(teks or "Belum ada perangkat.", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(kb))
