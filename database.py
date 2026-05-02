@@ -1,126 +1,77 @@
-import os, sqlite3
+import os, pg8000.native
+import urllib.parse as urlparse
 from dotenv import load_dotenv
 load_dotenv()
 
-# Coba PostgreSQL dulu, kalau gagal pakai SQLite
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-USE_PG = bool(DATABASE_URL)
 
-if USE_PG:
-    import urllib.parse as urlparse
+def get_pg_config():
     url = urlparse.urlparse(DATABASE_URL)
-    PG_CONFIG = {
+    return {
         "host": url.hostname,
         "port": url.port or 5432,
         "database": url.path[1:],
         "user": url.username,
         "password": url.password,
+        "ssl_context": True
     }
 
-DB_PATH = os.getenv("DB_PATH", "streaming.db")
-
 def get_conn():
-    if USE_PG:
-        import psycopg2
-        import psycopg2.extras
-        conn = psycopg2.connect(**PG_CONFIG)
-        conn.autocommit = False
-        return conn
-    else:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
+    cfg = get_pg_config()
+    return pg8000.native.Connection(**cfg)
 
 def fetchone(sql, params=()):
     conn = get_conn()
     try:
-        if USE_PG:
-            import psycopg2.extras
-            # Convert $1 style to %s for psycopg2
-            sql = sql.replace('$1','%s').replace('$2','%s').replace('$3','%s').replace('$4','%s').replace('$5','%s')
-            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            c.execute(sql, params)
-            r = c.fetchone()
-            return dict(r) if r else None
-        else:
-            c = conn.cursor()
-            c.execute(sql, params)
-            r = c.fetchone()
-            return dict(r) if r else None
+        # Convert $1,$2 style (already correct for pg8000)
+        rows = conn.run(sql, *params)
+        if not rows:
+            return None
+        cols = [c['name'] for c in conn.columns]
+        return dict(zip(cols, rows[0]))
     finally:
         conn.close()
 
 def fetchall(sql, params=()):
     conn = get_conn()
     try:
-        if USE_PG:
-            import psycopg2.extras
-            sql = sql.replace('$1','%s').replace('$2','%s').replace('$3','%s').replace('$4','%s').replace('$5','%s')
-            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            c.execute(sql, params)
-            return [dict(r) for r in c.fetchall()]
-        else:
-            c = conn.cursor()
-            c.execute(sql, params)
-            return [dict(r) for r in c.fetchall()]
+        rows = conn.run(sql, *params)
+        if not rows:
+            return []
+        cols = [c['name'] for c in conn.columns]
+        return [dict(zip(cols, row)) for row in rows]
     finally:
         conn.close()
 
 def execute(sql, params=()):
     conn = get_conn()
     try:
-        if USE_PG:
-            sql = sql.replace('$1','%s').replace('$2','%s').replace('$3','%s').replace('$4','%s').replace('$5','%s')
-        c = conn.cursor()
-        c.execute(sql, params)
-        conn.commit()
+        conn.run(sql, *params)
     finally:
         conn.close()
 
 def insert(sql, params=()):
     conn = get_conn()
     try:
-        if USE_PG:
-            sql = sql.replace('$1','%s').replace('$2','%s').replace('$3','%s').replace('$4','%s').replace('$5','%s')
-            sql = sql + " RETURNING id"
-            import psycopg2.extras
-            c = conn.cursor()
-            c.execute(sql, params)
-            rid = c.fetchone()[0]
-            conn.commit()
-            return rid
-        else:
-            sql_sqlite = sql + ""
-            c = conn.cursor()
-            c.execute(sql_sqlite, params)
-            conn.commit()
-            return c.lastrowid
+        rows = conn.run(sql + " RETURNING id", *params)
+        return rows[0][0] if rows else None
     finally:
         conn.close()
 
 def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-    if USE_PG:
-        serial = "SERIAL"
-        ts = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-    else:
-        serial = "INTEGER"
-        ts = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-
     tables = [
-        f'''CREATE TABLE IF NOT EXISTS netflix (
-            id {serial} PRIMARY KEY,
+        '''CREATE TABLE IF NOT EXISTS netflix (
+            id SERIAL PRIMARY KEY,
             email TEXT NOT NULL,
             password TEXT,
             tgl_ubah_pw TEXT,
             metode_bayar TEXT,
             catatan TEXT,
             status TEXT DEFAULT 'aktif',
-            created_at {ts}
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''',
-        f'''CREATE TABLE IF NOT EXISTS netflix_profil (
-            id {serial} PRIMARY KEY,
+        '''CREATE TABLE IF NOT EXISTS netflix_profil (
+            id SERIAL PRIMARY KEY,
             netflix_id INTEGER NOT NULL,
             nomor INTEGER NOT NULL,
             nama TEXT NOT NULL,
@@ -128,45 +79,47 @@ def init_db():
             expired TEXT,
             status TEXT DEFAULT 'aktif'
         )''',
-        f'''CREATE TABLE IF NOT EXISTS disney (
-            id {serial} PRIMARY KEY,
+        '''CREATE TABLE IF NOT EXISTS disney (
+            id SERIAL PRIMARY KEY,
             nama_paket TEXT DEFAULT 'DISNEY 1 BULAN SHARING',
             no_hp TEXT,
             email TEXT NOT NULL,
             expired_langganan TEXT NOT NULL,
             catatan TEXT,
             status TEXT DEFAULT 'aktif',
-            created_at {ts}
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''',
-        f'''CREATE TABLE IF NOT EXISTS disney_perangkat (
-            id {serial} PRIMARY KEY,
+        '''CREATE TABLE IF NOT EXISTS disney_perangkat (
+            id SERIAL PRIMARY KEY,
             disney_id INTEGER NOT NULL,
             nama TEXT NOT NULL,
             expired TEXT,
             status TEXT DEFAULT 'aktif'
         )''',
-        f'''CREATE TABLE IF NOT EXISTS youtube (
-            id {serial} PRIMARY KEY,
+        '''CREATE TABLE IF NOT EXISTS youtube (
+            id SERIAL PRIMARY KEY,
             email TEXT NOT NULL,
             password TEXT,
             expired TEXT NOT NULL,
             catatan TEXT,
             status TEXT DEFAULT 'aktif',
-            created_at {ts}
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''',
-        f'''CREATE TABLE IF NOT EXISTS pengingat_log (
-            id {serial} PRIMARY KEY,
+        '''CREATE TABLE IF NOT EXISTS pengingat_log (
+            id SERIAL PRIMARY KEY,
             tipe TEXT NOT NULL,
             ref_id INTEGER NOT NULL,
             jenis TEXT NOT NULL,
             tanggal TEXT NOT NULL
         )''',
     ]
-    for t in tables:
-        c.execute(t)
-    conn.commit()
-    conn.close()
-    print(f"✅ Database {'PostgreSQL' if USE_PG else 'SQLite'} siap!")
+    conn = get_conn()
+    try:
+        for t in tables:
+            conn.run(t)
+        print("✅ Database PostgreSQL siap!")
+    finally:
+        conn.close()
 
 # ══ NETFLIX ═══════════════════════════════════════════════
 
